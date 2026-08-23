@@ -1,0 +1,15 @@
+# Local Google Apps Script configuration and authentication logs
+.clasp.json
+.clasp-*.out
+.clasp-*.err
+
+# Local development output
+node_modules/
+npm-debug.log*
+
+# Environment and secret files
+.env
+.env.*
+!.env.example
+
+.npm-cache/

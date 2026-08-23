@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#c65a3a">
+  <meta name="description" content="Báo cơm trưa nhanh cho cả nhóm.">
+  <title>Báo cơm trưa</title>
+  <script>
+    (function markMobileDevice() {
+      const userAgent = navigator.userAgent || '';
+      const screenWidth = Math.min(window.screen?.width || 9999, window.screen?.height || 9999);
+      const isMobileDevice = /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent) || screenWidth <= 768;
+      if (isMobileDevice) document.documentElement.classList.add('mobile-device');
+    }());
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #f6f1e8;
+      --paper-deep: #eee6d8;
+      --surface: #fffdf8;
+      --ink: #202823;
+      --muted: #6e756d;
+      --line: #ded8cc;
+      --accent: #c65a3a;
+      --accent-dark: #9d4028;
+      --accent-soft: #f6ded4;
+      --olive: #667354;
+      --olive-soft: #e8eee1;
+      --shadow: 0 18px 50px rgba(75, 55, 28, .10);
+      --shadow-soft: 0 8px 24px rgba(75, 55, 28, .07);
+      --radius-lg: 28px;
+      --radius-md: 18px;
+      --radius-sm: 12px;
+      --ease: cubic-bezier(.22, .8, .24, 1);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      min-width: 320px;
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 0% 0%, rgba(198, 90, 58, .10), transparent 34rem),
+        radial-gradient(circle at 100% 18%, rgba(102, 115, 84, .10), transparent 30rem),
+        var(--paper);
+      font-family: "Be Vietnam Pro", "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    button, select, input { font: inherit; }
+    button { border: 0; }
+    button, select, input { -webkit-tap-highlight-color: transparent; }
+    button:focus-visible, select:focus-visible, input:focus-visible,
+    a:focus-visible { outline: 3px solid rgba(198, 90, 58, .34); outline-offset: 3px; }
+    a { color: var(--accent-dark); font-weight: 800; }
+
+    .skip-link {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 200;
+      padding: 10px 14px;
+      color: #fff;
+      background: var(--ink);
+      border-radius: 10px;
+      transform: translateY(-160%);
+      transition: transform .2s var(--ease);
+    }
+    .skip-link:focus { transform: translateY(0); }
+
+    .app {
+      width: min(1120px, calc(100% - 36px));
+      margin: 0 auto;
+      padding: 28px 0 52px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 26px;
+    }
+
+    .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; }
+    .brand-mark {
+      display: grid;
+      width: 40px;
+      height: 40px;
+      place-items: center;
+      color: #fff;
+      background: var(--accent);
+      border-radius: 14px 14px 14px 5px;
+      box-shadow: 5px 5px 0 rgba(157, 64, 40, .12);
+      font-size: 20px;
+    }
+    .brand-copy { display: grid; gap: 1px; }
+    .brand-name { font-size: 15px; font-weight: 900; letter-spacing: -.02em; }
+    .brand-note { color: var(--muted); font-size: 12px; }
+
+    .live-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      color: var(--olive);
+      background: rgba(232, 238, 225, .72);
+      border: 1px solid rgba(102, 115, 84, .14);
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .live-dot { width: 7px; height: 7px; background: #7a9c4f; border-radius: 50%; box-shadow: 0 0 0 4px rgba(122, 156, 79, .14); }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, .62fr);
+      min-height: 330px;
+      overflow: hidden;
+      color: #fff;
+      background:
+        radial-gradient(circle at 92% 18%, rgba(255,255,255,.16), transparent 15rem),
+        linear-gradient(118deg, #bd5032 0%, #ce6947 48%, #a9472f 100%);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+    }
+    .hero-copy { display: flex; flex-direction: column; justify-content: space-between; padding: 38px 42px 34px; }
+    .eyebrow {
+      margin: 0 0 16px;
+      color: rgba(255,255,255,.74);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 {
+      max-width: 620px;
+      margin-bottom: 14px;
+      font-size: clamp(2.2rem, 5vw, 4.6rem);
+      line-height: .98;
+      letter-spacing: -.065em;
+      text-wrap: balance;
+    }
+    .hero-subtitle { max-width: 460px; margin-bottom: 0; color: rgba(255,255,255,.82); font-size: 16px; }
+    .hero-date { color: rgba(255,255,255,.73); font-size: 14px; font-weight: 700; }
+
+    .hero-metric {
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      gap: 12px;
+      padding: 32px 36px 34px;
+      background: rgba(75, 28, 17, .17);
+      border-left: 1px solid rgba(255,255,255,.16);
+    }
+    .metric-label { color: rgba(255,255,255,.76); font-size: 13px; font-weight: 800; }
+    .metric-number { display: block; font-size: clamp(5rem, 12vw, 9rem); line-height: .78; letter-spacing: -.11em; font-variant-numeric: tabular-nums; }
+    .metric-caption { color: rgba(255,255,255,.84); font-size: 17px; font-weight: 800; }
+    .metric-progress { height: 7px; overflow: hidden; background: rgba(255,255,255,.22); border-radius: 999px; }
+    .metric-progress span { display: block; width: 0; height: 100%; background: #fff8e9; border-radius: inherit; transition: width .5s var(--ease); }
+    .metric-foot { display: flex; justify-content: space-between; gap: 10px; color: rgba(255,255,255,.72); font-size: 12px; }
+
+    .action-grid { margin-top: 14px; }
+    .action-card, .note-card, .panel { background: rgba(255,253,248,.88); border: 1px solid rgba(222,216,204,.9); box-shadow: var(--shadow-soft); }
+    .action-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 22px 24px; border-radius: var(--radius-md); }
+    .action-card h2 { margin-bottom: 5px; font-size: 19px; letter-spacing: -.03em; }
+    .action-card p { margin-bottom: 0; color: var(--muted); font-size: 14px; }
+    .future-action-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 10px; padding: 16px 20px; background: rgba(232,238,225,.62); border: 1px solid #d2dfc6; border-radius: var(--radius-md); }
+    .future-action-card h2 { margin: 0 0 3px; color: var(--olive); font-size: 15px; letter-spacing: -.025em; }
+    .future-action-card p { margin: 0; color: #657955; font-size: 12px; }
+    .action-copy { min-width: 0; }
+    .current-member {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      min-height: 46px;
+      margin-top: 14px;
+      padding: 9px 13px;
+      color: var(--accent-dark);
+      background: var(--accent-soft);
+      border: 1px solid rgba(198, 90, 58, .24);
+      border-radius: 13px;
+      cursor: pointer;
+      text-align: left;
+      transition: background .2s, border-color .2s, transform .2s var(--ease), box-shadow .2s;
+    }
+    .current-member:hover { background: #f3d0c2; border-color: rgba(198, 90, 58, .44); box-shadow: 0 7px 14px rgba(198, 90, 58, .11); transform: translateY(-1px); }
+    .current-member:active { transform: translateY(0) scale(.99); }
+    .member-label { display: block; color: #9d604e; font-size: 10px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+    .member-name { display: block; margin-top: 1px; color: var(--accent-dark); font-size: 14px; font-weight: 900; }
+    .member-action { margin-left: auto; color: var(--accent-dark); font-size: 12px; font-weight: 900; white-space: nowrap; }
+    .content-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(290px, .65fr); align-items: start; gap: 14px; margin-top: 14px; }
+    .summary-grid { margin-top: 14px; }
+    .panel { border-radius: var(--radius-md); }
+    .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 22px 24px 12px; }
+    .panel-kicker { margin-bottom: 5px; color: var(--muted); font-size: 11px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
+    .panel h2 { margin-bottom: 0; font-size: 20px; letter-spacing: -.04em; }
+    .count-badge { white-space: nowrap; padding: 7px 10px; color: var(--accent-dark); background: var(--accent-soft); border-radius: 9px; font-size: 12px; font-weight: 900; }
+    .panel-body { padding: 0 24px 24px; }
+    .booking-list { display: grid; }
+    .person { display: flex; align-items: center; gap: 13px; padding: 13px 0; border-top: 1px solid var(--line); }
+    .person:first-child { border-top: 0; }
+    .avatar { display: grid; width: 40px; height: 40px; flex: 0 0 auto; place-items: center; color: var(--accent-dark); background: var(--accent-soft); border-radius: 13px 13px 13px 5px; font-size: 12px; font-weight: 900; }
+    .person-main { min-width: 0; flex: 1; }
+    .person-name { overflow: hidden; font-size: 15px; font-weight: 900; text-overflow: ellipsis; white-space: nowrap; }
+    .person-time { margin-top: 2px; color: var(--muted); font-size: 12px; }
+    .person-mark { color: var(--olive); font-size: 18px; }
+    .list-toggle { width: 100%; margin-top: 8px; }
+    .empty { padding: 34px 10px 20px; color: var(--muted); text-align: center; }
+    .empty-icon { display: grid; width: 48px; height: 48px; margin: 0 auto 11px; place-items: center; color: var(--accent-dark); background: var(--accent-soft); border-radius: 16px; font-size: 22px; }
+    .empty-title { margin-bottom: 4px; color: var(--ink); font-size: 15px; font-weight: 900; }
+    .empty p { max-width: 280px; margin: 0 auto; font-size: 13px; }
+    .refresh-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 9px; color: var(--muted); background: transparent; border-radius: 9px; cursor: pointer; font-size: 12px; font-weight: 800; transition: color .2s, background .2s, transform .2s var(--ease); }
+    .refresh-btn:hover { color: var(--accent-dark); background: var(--accent-soft); }
+    .refresh-btn:active { transform: translateY(1px); }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 46px;
+      padding: 11px 17px;
+      border-radius: 13px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 900;
+      transition: transform .2s var(--ease), background .2s, color .2s, box-shadow .2s;
+    }
+    .button:hover { transform: translateY(-2px); }
+    .button:active { transform: translateY(0) scale(.98); }
+    .button:disabled { cursor: not-allowed; opacity: .52; transform: none; }
+    .button-primary { color: #fff; background: var(--accent); box-shadow: 0 8px 16px rgba(198,90,58,.19); }
+    .button-primary:hover { background: var(--accent-dark); }
+    .button-secondary { color: var(--ink); background: var(--paper-deep); }
+    .button-secondary:hover { background: #e5dac8; }
+    .button-danger { color: #9e4c23; background: #f9e7cf; }
+    .button-quiet { color: var(--muted); background: transparent; }
+    .button-quiet:hover { color: var(--ink); background: var(--paper-deep); }
+    .wide-button { width: 100%; }
+    .overlay { position: fixed; inset: 0; z-index: 50; display: none; align-items: center; justify-content: center; padding: 18px; background: rgba(32,40,35,.42); backdrop-filter: blur(5px); }
+    .overlay.show { display: flex; animation: fade-in .18s ease-out; }
+    .sheet { width: min(460px, 100%); max-height: min(700px, 90vh); overflow: auto; padding: 25px; background: var(--surface); border: 1px solid rgba(255,255,255,.65); border-radius: 24px; box-shadow: 0 24px 70px rgba(38, 25, 13, .22); animation: sheet-in .24s var(--ease); }
+    .sheet-head { display: flex; justify-content: space-between; gap: 18px; margin-bottom: 20px; }
+    .sheet h3 { margin-bottom: 5px; font-size: 25px; letter-spacing: -.05em; }
+    .sheet-intro { margin-bottom: 0; color: var(--muted); font-size: 13px; }
+    .welcome-sheet { width: min(520px, 100%); padding: 32px; border-color: rgba(198,90,58,.28); box-shadow: 0 28px 90px rgba(78, 38, 20, .28); }
+    .welcome-sheet h3 { margin-bottom: 10px; color: var(--accent-dark); font-size: clamp(2.5rem, 8vw, 4.4rem); line-height: .95; letter-spacing: -.075em; }
+    .welcome-kicker { margin-bottom: 9px; color: var(--olive); font-size: 11px; font-weight: 900; letter-spacing: .16em; text-transform: uppercase; }
+    .welcome-sheet label { margin-top: 24px; font-size: 13px; }
+    .close-btn { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; color: var(--muted); background: var(--paper-deep); border-radius: 10px; cursor: pointer; font-size: 19px; transition: background .2s, color .2s; }
+    .close-btn:hover { color: var(--ink); background: var(--accent-soft); }
+    label { display: block; margin: 16px 0 7px; color: var(--ink); font-size: 12px; font-weight: 900; }
+    select, input[type="month"], input[type="date"] { width: 100%; min-height: 48px; padding: 11px 13px; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 12px; outline: 0; }
+    select:focus, input[type="month"]:focus, input[type="date"]:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(198,90,58,.10); }
+    .auto-book-option { display: flex; align-items: flex-start; gap: 11px; margin-top: 16px; padding: 13px; background: var(--olive-soft); border: 1px solid #d2dfc6; border-radius: 13px; cursor: pointer; }
+    .auto-book-option input { width: 18px; height: 18px; flex: 0 0 auto; margin: 1px 0 0; accent-color: var(--olive); }
+    .auto-book-option strong { display: block; color: var(--olive); font-size: 13px; }
+    .auto-book-option span { display: block; margin-top: 3px; color: #657955; font-size: 11px; line-height: 1.45; }
+    .sheet-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px; }
+    .history-summary { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-top: 22px; padding: 16px; color: var(--olive); background: var(--olive-soft); border: 1px solid #d2dfc6; border-radius: 15px; }
+    .history-summary-label { color: #5e6e4e; font-size: 12px; font-weight: 800; }
+    .history-summary strong { display: block; margin-top: 2px; color: var(--olive); font-size: 32px; line-height: 1; letter-spacing: -.06em; }
+    .history-days { margin-top: 8px; }
+    .history-day { display: flex; justify-content: space-between; gap: 12px; padding: 11px 2px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+    .history-day strong { color: var(--ink); }
+    .future-cancellation-list { margin-top: 18px; }
+    .future-cancellation-title { margin-bottom: 5px; color: var(--muted); font-size: 11px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+    .future-cancellation-item { padding: 8px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+    .monthly-total { color: var(--accent-dark); background: var(--accent-soft); }
+    .monthly-brief { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px; color: var(--accent-dark); background: var(--accent-soft); border-radius: 15px; }
+    .monthly-brief strong { display: block; font-size: 28px; line-height: 1; letter-spacing: -.06em; }
+    .monthly-brief span { color: #9d604e; font-size: 12px; font-weight: 800; }
+
+    .loading { position: fixed; inset: 0; z-index: 90; display: none; place-items: center; padding: 18px; background: rgba(246,241,232,.68); backdrop-filter: blur(3px); }
+    .loading.show { display: grid; }
+    .loading-card { display: flex; align-items: center; gap: 12px; padding: 14px 16px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-soft); font-size: 13px; font-weight: 800; }
+    .spinner { width: 19px; height: 19px; border: 3px solid var(--accent-soft); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+    .skeleton { height: 16px; margin: 12px 0; background: linear-gradient(90deg, #eee8dd 25%, #f8f4ec 50%, #eee8dd 75%); background-size: 200% 100%; border-radius: 8px; animation: shimmer 1.2s infinite; }
+    .skeleton-short { width: 58%; }
+    .skeleton-medium { width: 78%; }
+    .skeleton-long { width: 66%; }
+    .history-hint { margin: 6px 0 18px; color: var(--muted); font-size: 14px; }
+    .toast { position: fixed; left: 50%; bottom: 22px; z-index: 100; width: max-content; max-width: min(420px, calc(100vw - 30px)); padding: 12px 15px; color: #fff; background: var(--ink); border-radius: 12px; box-shadow: var(--shadow-soft); opacity: 0; pointer-events: none; text-align: center; transform: translate(-50%, 18px); transition: opacity .2s, transform .2s var(--ease); }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+    .toast.error { background: #8f3828; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes shimmer { to { background-position: -200% 0; } }
+    @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes sheet-in { from { opacity: 0; transform: translateY(12px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+    @media (max-width: 780px) {
+      .app { width: min(100% - 28px, 640px); padding-top: 18px; }
+      .hero { grid-template-columns: 1fr; min-height: 0; }
+      .hero-copy { padding: 30px 26px 24px; }
+      .hero-metric { min-height: 210px; padding: 28px 26px; border-top: 1px solid rgba(255,255,255,.16); border-left: 0; }
+      .metric-number { font-size: clamp(5.8rem, 24vw, 8rem); }
+      .content-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 520px) {
+      .app { width: calc(100% - 22px); padding-bottom: 30px; }
+      .topbar { margin-bottom: 17px; }
+      .brand-note, .live-status { display: none; }
+      .hero-copy { padding: 27px 22px 22px; }
+      h1 { font-size: clamp(2.5rem, 10vw, 3.2rem); }
+      .hero-subtitle { font-size: 14px; }
+      .hero-metric { display: grid; grid-template-columns: 1fr auto; min-height: 0; gap: 6px 14px; padding: 18px 22px 20px; }
+      .metric-label { align-self: end; }
+      .metric-number { grid-row: span 2; align-self: end; font-size: 4.6rem; }
+      .metric-caption { display: none; }
+      .metric-progress, .metric-foot { grid-column: 1 / -1; }
+      .action-card { align-items: stretch; flex-direction: column; padding: 19px; }
+      .action-card .button { width: 100%; }
+      .future-action-card { align-items: stretch; flex-direction: column; padding: 16px 18px; }
+      .future-action-card .button { width: 100%; }
+      .panel-head { padding: 20px 18px 11px; }
+      .panel-body { padding: 0 18px 18px; }
+      .sheet { align-self: end; max-height: 88vh; padding: 22px 18px calc(18px + env(safe-area-inset-bottom)); border-radius: 22px 22px 14px 14px; }
+      .overlay { align-items: flex-end; padding: 10px; }
+      .sheet-actions { grid-template-columns: 1fr; }
+    }
+
+    /* Zalo and some mobile webviews expose a desktop-sized layout viewport. */
+    html.mobile-device .app { width: calc(100% - 22px); padding-top: 18px; padding-bottom: 30px; }
+    html.mobile-device .topbar { margin-bottom: 17px; }
+    html.mobile-device .brand-note,
+    html.mobile-device .live-status { display: none; }
+    html.mobile-device .hero { grid-template-columns: 1fr; min-height: 0; }
+    html.mobile-device .hero-copy { padding: 27px 22px 22px; }
+    html.mobile-device h1 { font-size: clamp(2.5rem, 10vw, 3.2rem); }
+    html.mobile-device .hero-subtitle { font-size: 14px; }
+    html.mobile-device .hero-metric {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      min-height: 0;
+      gap: 6px 14px;
+      padding: 18px 22px 20px;
+      border-top: 1px solid rgba(255,255,255,.16);
+      border-left: 0;
+    }
+    html.mobile-device .metric-label { align-self: end; }
+    html.mobile-device .metric-number { grid-row: span 2; align-self: end; font-size: 4.6rem; }
+    html.mobile-device .metric-caption { display: none; }
+    html.mobile-device .metric-progress,
+    html.mobile-device .metric-foot { grid-column: 1 / -1; }
+    html.mobile-device .content-grid { grid-template-columns: 1fr; }
+    html.mobile-device .action-card { align-items: stretch; flex-direction: column; padding: 19px; }
+    html.mobile-device .action-card .button { width: 100%; }
+    html.mobile-device .future-action-card { align-items: stretch; flex-direction: column; padding: 16px 18px; }
+    html.mobile-device .future-action-card .button { width: 100%; }
+    html.mobile-device .panel-head { padding: 20px 18px 11px; }
+    html.mobile-device .panel-body { padding: 0 18px 18px; }
+    html.mobile-device .sheet {
+      align-self: end;
+      max-height: 88vh;
+      padding: 22px 18px calc(18px + env(safe-area-inset-bottom));
+      border-radius: 22px 22px 14px 14px;
+    }
+    html.mobile-device .overlay { align-items: flex-end; padding: 10px; }
+    html.mobile-device .sheet-actions { grid-template-columns: 1fr; }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Tới nội dung chính</a>
+  <div class="app">
+    <header class="topbar">
+      <a class="brand" href="." aria-label="Báo cơm trưa">
+        <span class="brand-mark" aria-hidden="true">🍚</span>
+        <span class="brand-copy">
+          <span class="brand-name">Hội cơm trưa</span>
+          <span class="brand-note">Báo nhanh, ăn đúng giờ</span>
+        </span>
+      </a>
+      <div class="live-status"><span class="live-dot" aria-hidden="true"></span><span id="connectionStatus">Đang kết nối</span></div>
+    </header>
+
+    <main id="main-content">
+      <section class="hero" aria-labelledby="page-title">
+        <div class="hero-copy">
+          <div>
+            <p class="eyebrow">Bảng báo cơm hôm nay</p>
+            <h1 id="page-title">Hôm nay ăn trưa cùng nhau.</h1>
+            <p class="hero-subtitle">Chọn tên, báo một suất.</p>
+          </div>
+          <div class="hero-date" id="todayLabel">Đang tải ngày hôm nay...</div>
+        </div>
+        <div class="hero-metric" aria-live="polite">
+          <span class="metric-label">Tổng số suất đã báo</span>
+          <strong class="metric-number" id="bigTotal">0</strong>
+          <span class="metric-caption">suất ăn cho hôm nay</span>
+          <div class="metric-progress" aria-hidden="true"><span id="progressBar"></span></div>
+          <div class="metric-foot"><span id="memberProgress">0 người trong nhóm</span><span id="cutoffText">Nhận báo đến 08:00</span></div>
+        </div>
+      </section>
+
+      <section class="action-grid" aria-label="Thao tác chính">
+        <div class="action-card">
+          <div class="action-copy">
+            <h2 id="actionTitle">Bạn ăn trưa hôm nay?</h2>
+            <p id="actionDescription">Báo trước 08:00 để bếp chuẩn bị đủ phần.</p>
+            <button class="current-member" id="selectedUserText" type="button" onclick="openNamePicker()">Chọn tên của bạn</button>
+          </div>
+          <button class="button button-primary" id="bookBtn" type="button" onclick="handleMainAction()">🍚 Báo cơm hôm nay</button>
+        </div>
+        <div class="future-action-card">
+          <div>
+            <div class="panel-kicker">Có lịch nghỉ sắp tới?</div>
+            <h2>Hủy cơm trước ngày nghỉ</h2>
+            <p>Chọn trước một ngày làm việc để hệ thống không tự báo cơm cho bạn.</p>
+          </div>
+          <button class="button button-secondary" type="button" onclick="openFutureCancel()">📅 Hủy cơm sắp tới</button>
+        </div>
+      </section>
+
+      <section class="content-grid" aria-label="Thông tin cơm trưa">
+        <article class="panel">
+          <div class="panel-head">
+            <div><div class="panel-kicker">Danh sách hiện tại</div><h2>Ai đã báo cơm</h2></div>
+            <div class="count-badge" id="listBadge">0 người</div>
+          </div>
+          <div class="panel-body">
+            <div id="bookedList" class="booking-list" aria-live="polite"><div class="skeleton skeleton-short"></div><div class="skeleton skeleton-medium"></div><div class="skeleton skeleton-long"></div></div>
+            <button class="button button-secondary list-toggle" id="bookedListToggle" type="button" onclick="toggleBookedList()" hidden aria-expanded="false"></button>
+          </div>
+        </article>
+
+        <aside class="panel">
+          <div class="panel-head">
+            <div><div class="panel-kicker">Xem lại</div><h2>Lịch sử suất ăn</h2></div>
+            <button class="refresh-btn" type="button" onclick="openHistory()">Mở <span aria-hidden="true">↗</span></button>
+          </div>
+          <div class="panel-body">
+            <p class="history-hint">Xem từng ngày đã ăn và tổng suất theo tháng.</p>
+            <button class="button button-secondary wide-button" type="button" onclick="openHistory()">📊 Theo dõi suất ăn</button>
+          </div>
+        </aside>
+      </section>
+
+      <section class="summary-grid" aria-label="Tổng hợp suất ăn trong tháng">
+        <article class="panel">
+          <div class="panel-head">
+            <div><div class="panel-kicker">Theo dõi tháng</div><h2>Số suất ăn trong tháng</h2></div>
+            <div class="count-badge monthly-total" id="monthlyTotal">0 suất</div>
+          </div>
+          <div class="panel-body">
+            <div class="monthly-brief"><span id="monthlyLabel">Đang tải thống kê...</span><button class="button button-quiet" type="button" onclick="openHistory()">Xem lịch sử →</button></div>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <div class="overlay" id="nameOverlay" role="dialog" aria-modal="true" aria-labelledby="nameDialogTitle" aria-hidden="true">
+    <div class="sheet" id="nameSheet" role="document">
+      <div class="sheet-head">
+        <div><p class="welcome-kicker">Nhận diện thành viên</p><h3 id="nameDialogTitle">Chọn tên của bạn</h3><p class="sheet-intro" id="nameDialogIntro">Điện thoại sẽ ghi nhớ lựa chọn này cho lần sau.</p></div>
+        <button class="close-btn" type="button" aria-label="Đóng" onclick="closeOverlay('nameOverlay')">×</button>
+      </div>
+      <label for="memberSelect">Họ và tên</label>
+      <select id="memberSelect" onchange="syncAutoBookingFromSelect()"></select>
+      <label class="auto-book-option" for="autoBookEnabled">
+        <input id="autoBookEnabled" type="checkbox">
+        <span><strong>Tự động báo cơm vào ngày làm việc</strong><span>Hệ thống tự báo một suất mỗi ngày từ Thứ 2 đến Thứ 6. Không báo Thứ 7, Chủ nhật.</span></span>
+      </label>
+      <div class="sheet-actions">
+        <button class="button button-quiet" type="button" onclick="closeOverlay('nameOverlay')">Để sau</button>
+        <button class="button button-primary" type="button" onclick="saveSelectedMember()">Chọn tên này</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="historyOverlay" role="dialog" aria-modal="true" aria-labelledby="historyDialogTitle" aria-hidden="true">
+    <div class="sheet" role="document">
+      <div class="sheet-head">
+        <div><h3 id="historyDialogTitle">Theo dõi suất ăn</h3><p class="sheet-intro">Chọn thành viên và tháng muốn xem.</p></div>
+        <button class="close-btn" type="button" aria-label="Đóng" onclick="closeOverlay('historyOverlay')">×</button>
+      </div>
+      <label for="historyMember">Thành viên</label>
+      <select id="historyMember"></select>
+      <label for="historyMonth">Tháng</label>
+      <input id="historyMonth" type="month">
+      <div class="sheet-actions">
+        <button class="button button-quiet" type="button" onclick="closeOverlay('historyOverlay')">Đóng</button>
+        <button class="button button-primary" type="button" onclick="loadHistory()">Xem thống kê</button>
+      </div>
+      <div id="historyResult"></div>
+    </div>
+  </div>
+
+  <div class="overlay" id="futureCancelOverlay" role="dialog" aria-modal="true" aria-labelledby="futureCancelDialogTitle" aria-hidden="true">
+    <div class="sheet" role="document">
+      <div class="sheet-head">
+        <div><h3 id="futureCancelDialogTitle">Hủy cơm sắp tới</h3><p class="sheet-intro" id="futureCancelIntro">Chọn một ngày làm việc trong tương lai. Yêu cầu này sẽ được ghi nhớ trước giờ tự báo cơm.</p></div>
+        <button class="close-btn" type="button" aria-label="Đóng" onclick="closeOverlay('futureCancelOverlay')">×</button>
+      </div>
+      <label for="futureCancelDate">Ngày muốn hủy</label>
+      <input id="futureCancelDate" type="date">
+      <div id="futureCancellationList"></div>
+      <div class="sheet-actions">
+        <button class="button button-quiet" type="button" onclick="closeOverlay('futureCancelOverlay')">Đóng</button>
+        <button class="button button-primary" type="button" onclick="submitFutureCancel()">Lưu ngày hủy</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="loading" id="loading" aria-live="polite" aria-label="Đang tải"><div class="loading-card"><span class="spinner" aria-hidden="true"></span><span id="loadingText">Đang cập nhật...</span></div></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    let state = { members: [], booked: [], locked: false, total: 0, cutoffLabel: '08:00', today: '', monthlySummary: { monthLabel: '', total: 0, rows: [] } };
+    let lastFocusedElement = null;
+    let toastTimer;
+    let isBookedListExpanded = false;
+    const STORAGE_KEY = 'bao-com-member-id';
+    const DEMO_MODE = typeof google === 'undefined';
+    let demoBookings = [];
+    let demoFutureCancellations = [];
+    const demoMembers = [
+      'Ngô Đức Thành',
+      'Phạm Thị Thu Thủy',
+      'Lê Xuân Độ',
+      'Vi Thế Dũng',
+      'Nguyễn Trường Thành',
+      'Lê Thị Hiền',
+      'Trần Thị Thu Hoà',
+      'Vương Lan Anh',
+      'Nguyễn Hoàng Hiệp',
+      'Đỗ Đức Cường',
+      'Nguyễn Cao Cường',
+      'Lê Ngọc Cảnh',
+      'Nguyễn Mạnh Hùng',
+      'Vũ Tiến Thọ',
+      'Bùi Nguyên Hồng Giang',
+      'Phạm Việt Hùng',
+      'Đoàn Văn Tiến',
+      'Phạm Thị Hồng Vân',
+      'Phạm Trung Thành',
+      'Đỗ Anh Quang',
+      'Bùi Hiếu Nam',
+      'Hoàng Thị Kim Anh',
+      'Nguyễn Thị Hoa',
+      'Bạch Thị Phương Dung',
+      'Đặng Thị Khánh Phương',
+      'Nguyễn Việt Thành',
+      'Nguyễn Toàn Thịnh',
+      'Nguyễn Văn Công',
+      'Nguyễn Tiến Hưng',
+      'Phan Văn Mạnh',
+      'Nguyễn Thị Minh Tâm',
+      'Vi Ngọc Phương',
+      'Nguyễn Hồng Thanh',
+      'Đoàn Trung Kiên',
+      'Lê Văn Đan',
+      'Đào Xuân Tùng',
+      'Nguyễn Hữu Hải'
+    ].map((name, index) => ({ id: `demo-${index + 1}`, name, active: true, autoBook: name === 'Vi Ngọc Phương' }))
+      .sort((a, b) => {
+        if (a.name === 'Đỗ Đức Cường') return -1;
+        if (b.name === 'Đỗ Đức Cường') return 1;
+        return a.name.localeCompare(b.name, 'vi');
+      });
+
+    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        const open = document.querySelector('.overlay.show');
+        if (open) closeOverlay(open.id);
+      }
+    });
+    document.querySelectorAll('.overlay').forEach(overlay => {
+      overlay.addEventListener('click', event => { if (event.target === overlay) closeOverlay(overlay.id); });
+    });
+
+    function init() {
+      setLoading(true, 'Đang tải danh sách...');
+      refreshData().then(() => {
+        if (!getSavedMember()) window.setTimeout(() => openNamePicker(true), 180);
+      }).catch(showError);
+    }
+
+    function refreshData(showMessage) {
+      return callServer('getInitialData').then(data => {
+        state = data;
+        render();
+        setConnection('Đã cập nhật');
+        setLoading(false);
+        if (showMessage) toast('Danh sách đã được cập nhật.');
+        return data;
+      }).catch(error => { setConnection('Chưa kết nối'); throw error; });
+    }
+
+    function callServer(method, ...args) {
+      if (DEMO_MODE) {
+        return new Promise((resolve, reject) => {
+          window.setTimeout(() => {
+            try { resolve(demoApi(method, ...args)); } catch (error) { reject(error); }
+          }, 280);
+        });
+      }
+      return new Promise((resolve, reject) => {
+        const runner = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
+        runner[method](...args);
+      });
+    }
+
+    function demoApi(method, ...args) {
+      const today = new Date();
+      const dateKey = today.toISOString().slice(0, 10);
+      if (method === 'getInitialData') {
+        const booked = demoBookings.map(id => demoMembers.find(member => member.id === id)).filter(Boolean).map((member, index) => ({ memberId: member.id, name: member.name, updatedAt: `${String(8 + Math.floor(index / 2)).padStart(2, '0')}:${index % 2 ? '10' : '02'}` }));
+        const rows = demoMembers.map(member => ({ memberId: member.id, name: member.name, total: demoBookings.includes(member.id) ? 1 : 0 }));
+        return { ok: true, today: formatDate(today), dateKey, cutoffLabel: '08:00', locked: false, members: demoMembers, monthlySummary: { month: dateKey.slice(0, 7), monthLabel: `tháng ${Number(dateKey.slice(5, 7))}/${dateKey.slice(0, 4)}`, total: booked.length, rows }, booked, total: booked.length };
+      }
+      if (method === 'bookToday' || method === 'cancelToday') {
+        const id = String(args[0]);
+        demoBookings = method === 'bookToday' ? [...new Set([...demoBookings, id])] : demoBookings.filter(memberId => memberId !== id);
+        return demoApi('getInitialData');
+      }
+      if (method === 'cancelFutureMeal') {
+        const key = `${String(args[0])}:${String(args[1])}`;
+        if (!demoFutureCancellations.includes(key)) demoFutureCancellations.push(key);
+        return demoApi('getInitialData');
+      }
+      if (method === 'getFutureCancellations') {
+        const memberId = String(args[0]);
+        const days = demoFutureCancellations
+          .filter(key => key.startsWith(memberId + ':'))
+          .map(key => key.slice(memberId.length + 1))
+          .sort()
+          .map(key => ({ dateKey: key, dateLabel: key.split('-').reverse().join('/') }));
+        const member = demoMembers.find(item => item.id === memberId);
+        return { ok: true, member: member ? member.name : 'Thành viên', days };
+      }
+      if (method === 'setAutoBooking') {
+        const member = demoMembers.find(item => item.id === String(args[0]));
+        if (!member) throw new Error('Không tìm thấy thành viên.');
+        member.autoBook = Boolean(args[1]);
+        return demoApi('getInitialData');
+      }
+      if (method === 'getMonthlyHistory') {
+        const member = demoMembers.find(item => item.id === args[0]);
+        const days = demoBookings.includes(args[0]) ? [{ dateLabel: formatDate(today), dateKey, updatedAt: '08:02' }] : [];
+        return { ok: true, member: member ? member.name : 'Thành viên', month: args[1], monthLabel: `tháng ${Number(args[1].slice(5))}/${args[1].slice(0, 4)}`, total: days.length, days };
+      }
+      throw new Error('Tác vụ demo chưa được hỗ trợ.');
+    }
+
+    function render() {
+      document.getElementById('bigTotal').textContent = state.total;
+      document.getElementById('todayLabel').textContent = 'Hôm nay · ' + state.today;
+      document.getElementById('listBadge').textContent = state.total + ' người';
+      const membersCount = state.members.length;
+      document.getElementById('memberProgress').textContent = `${state.total}/${membersCount} người trong nhóm`;
+      document.getElementById('progressBar').style.width = membersCount ? Math.min(100, state.total / membersCount * 100) + '%' : '0%';
+      const cutoff = state.locked ? `Đã chốt lúc ${state.cutoffLabel}` : `Nhận báo đến ${state.cutoffLabel}`;
+      document.getElementById('cutoffText').textContent = cutoff;
+      renderMembersIntoSelects();
+      renderBookedList();
+      renderMonthlySummary();
+      renderSelectedUser();
+      renderMainButton();
+    }
+
+    function renderBookedList() {
+      const el = document.getElementById('bookedList');
+      const toggle = document.getElementById('bookedListToggle');
+      if (!state.booked.length) {
+        el.innerHTML = '<div class="empty"><div class="empty-icon" aria-hidden="true">🍱</div><div class="empty-title">Chưa có ai báo cơm</div><p>Hãy là người đầu tiên báo suất ăn hôm nay.</p></div>';
+        toggle.hidden = true;
+        return;
+      }
+      const previewLimit = 5;
+      const hasMore = state.booked.length > previewLimit;
+      const bookings = hasMore && !isBookedListExpanded ? state.booked.slice(0, previewLimit) : state.booked;
+      el.innerHTML = bookings.map(booking => `
+        <div class="person">
+          <div class="avatar" aria-hidden="true">${escapeHtml(initials(booking.name))}</div>
+          <div class="person-main"><div class="person-name">${escapeHtml(booking.name)}</div><div class="person-time">${booking.updatedAt ? 'Báo lúc ' + escapeHtml(booking.updatedAt) : 'Đã báo cơm'}</div></div>
+          <div class="person-mark" aria-label="Đã báo">✓</div>
+        </div>`).join('');
+      toggle.hidden = !hasMore;
+      if (hasMore) {
+        const remaining = state.booked.length - previewLimit;
+        toggle.textContent = isBookedListExpanded ? 'Thu gọn danh sách' : `Xem thêm ${remaining} người`;
+        toggle.setAttribute('aria-expanded', String(isBookedListExpanded));
+      }
+    }
+
+    function renderMonthlySummary() {
+      const summary = state.monthlySummary || { monthLabel: '', total: 0, rows: [] };
+      document.getElementById('monthlyTotal').textContent = `${summary.total || 0} suất`;
+      document.getElementById('monthlyLabel').textContent = summary.monthLabel ? `Tổng hợp ${summary.monthLabel}.` : 'Đang tải thống kê...';
+    }
+
+    function renderMembersIntoSelects() {
+      const currentMember = document.getElementById('memberSelect').value;
+      const currentHistoryMember = document.getElementById('historyMember').value;
+      const options = ['<option value="">-- Chọn họ tên --</option>'].concat(state.members.map(member => `<option value="${escapeAttr(member.id)}">${escapeHtml(member.name)}</option>`)).join('');
+      document.getElementById('memberSelect').innerHTML = options;
+      document.getElementById('historyMember').innerHTML = options;
+      const saved = getSavedMember();
+      document.getElementById('memberSelect').value = saved ? saved.id : currentMember;
+      document.getElementById('historyMember').value = saved ? saved.id : currentHistoryMember;
+      syncAutoBookingFromSelect();
+      if (!document.getElementById('historyMonth').value) document.getElementById('historyMonth').value = monthValue(new Date());
+    }
+
+    function renderSelectedUser() {
+      const saved = getSavedMember();
+      const el = document.getElementById('selectedUserText');
+      el.innerHTML = saved
+        ? `<span><span class="member-label">Đang dùng tên</span><strong class="member-name">${escapeHtml(saved.name)}</strong></span><span class="member-action">Đổi tên →</span>`
+        : '<span><span class="member-label">Tên của bạn</span><strong class="member-name">Chưa chọn tên</strong></span><span class="member-action">Chọn tên →</span>';
+    }
+
+    function toggleBookedList() {
+      isBookedListExpanded = !isBookedListExpanded;
+      renderBookedList();
+    }
+
+    function renderMainButton() {
+      const btn = document.getElementById('bookBtn');
+      const saved = getSavedMember();
+      const isBooked = Boolean(saved && state.booked.some(booking => booking.memberId === saved.id));
+      btn.disabled = state.locked;
+      btn.className = 'button ' + (state.locked ? 'button-secondary' : isBooked ? 'button-danger' : 'button-primary');
+      btn.textContent = state.locked ? '🔒 Đã chốt danh sách' : isBooked ? '↩ Hủy báo cơm hôm nay' : '🍚 Báo cơm hôm nay';
+      document.getElementById('actionTitle').textContent = state.locked ? 'Danh sách hôm nay đã chốt' : isBooked ? 'Bạn đã báo cơm hôm nay' : 'Bạn ăn trưa hôm nay?';
+      document.getElementById('actionDescription').textContent = state.locked ? 'Không thể thay đổi sau giờ chốt.' : isBooked ? 'Cần đổi ý? Bạn vẫn có thể hủy trước giờ chốt.' : `Báo trước ${state.cutoffLabel} để bếp chuẩn bị đủ phần.`;
+    }
+
+    function handleMainAction() {
+      if (state.locked) return toast('Danh sách hôm nay đã chốt.');
+      const saved = getSavedMember();
+      if (!saved) return openNamePicker();
+      const isBooked = state.booked.some(booking => booking.memberId === saved.id);
+      setLoading(true, isBooked ? 'Đang hủy suất ăn...' : 'Đang ghi nhận suất ăn...');
+      callServer(isBooked ? 'cancelToday' : 'bookToday', saved.id).then(data => {
+        state = data; render(); setLoading(false);
+        toast(isBooked ? 'Đã hủy báo cơm hôm nay.' : 'Đã báo 1 suất cơm hôm nay.');
+      }).catch(showError);
+    }
+
+    function openFutureCancel() {
+      const saved = getSavedMember();
+      if (!saved) return openNamePicker();
+
+      const dateInput = document.getElementById('futureCancelDate');
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      dateInput.min = dateInputValue(tomorrow);
+      dateInput.value = nextWeekdayValue(tomorrow);
+      document.getElementById('futureCancelIntro').textContent = `Đang chọn cho ${saved.name}. Yêu cầu sẽ được ghi nhớ trước giờ tự báo cơm.`;
+      openOverlay('futureCancelOverlay');
+      loadFutureCancellations();
+    }
+
+    function submitFutureCancel() {
+      const saved = getSavedMember();
+      const dateKey = document.getElementById('futureCancelDate').value;
+      if (!saved) return openNamePicker();
+      if (!dateKey) return toast('Hãy chọn ngày muốn hủy.', true);
+
+      const selected = new Date(`${dateKey}T12:00:00`);
+      const tomorrow = new Date();
+      tomorrow.setHours(12, 0, 0, 0);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      if (selected < tomorrow) return toast('Chỉ có thể hủy cơm cho ngày trong tương lai.', true);
+      if ([0, 6].includes(selected.getDay())) return toast('Ngày cuối tuần không có lịch tự báo cơm.', true);
+
+      setLoading(true, 'Đang lưu ngày hủy cơm...');
+      callServer('cancelFutureMeal', saved.id, dateKey).then(() => {
+        setLoading(false);
+        loadFutureCancellations();
+        toast(`Đã hủy cơm ngày ${formatShortDate(selected)}.`);
+      }).catch(showError);
+    }
+
+    function loadFutureCancellations() {
+      const saved = getSavedMember();
+      if (!saved) return;
+      callServer('getFutureCancellations', saved.id).then(data => {
+        const el = document.getElementById('futureCancellationList');
+        if (!data.days.length) {
+          el.innerHTML = '';
+          return;
+        }
+        el.innerHTML = `<div class="future-cancellation-list"><div class="future-cancellation-title">Các ngày đã hủy trước</div>${data.days.map(day => `<div class="future-cancellation-item">${escapeHtml(day.dateLabel)} · đã ghi nhận hủy</div>`).join('')}</div>`;
+      }).catch(showError);
+    }
+
+    function openNamePicker(isWelcome) {
+      const sheet = document.getElementById('nameSheet');
+      document.getElementById('nameDialogTitle').textContent = isWelcome ? 'Đồng chí là:' : 'Chọn tên của bạn';
+      document.getElementById('nameDialogIntro').textContent = isWelcome ? 'Chọn đúng họ tên để nhóm ghi nhận suất ăn của đồng chí.' : 'Điện thoại sẽ ghi nhớ lựa chọn này cho lần sau.';
+      sheet.classList.toggle('welcome-sheet', Boolean(isWelcome));
+      syncAutoBookingFromSelect(); openOverlay('nameOverlay'); document.getElementById('memberSelect').focus();
+    }
+
+    function syncAutoBookingFromSelect() {
+      const member = state.members.find(item => item.id === document.getElementById('memberSelect').value);
+      document.getElementById('autoBookEnabled').checked = Boolean(member && member.autoBook);
+    }
+
+    function saveSelectedMember() {
+      const id = document.getElementById('memberSelect').value;
+      const member = state.members.find(item => item.id === id);
+      if (!member) return toast('Hãy chọn tên của bạn.', true);
+      localStorage.setItem(STORAGE_KEY, member.id);
+      document.getElementById('historyMember').value = member.id;
+      const autoBook = document.getElementById('autoBookEnabled').checked;
+      if (autoBook === Boolean(member.autoBook)) {
+        closeOverlay('nameOverlay'); renderSelectedUser(); renderMainButton();
+        return toast('Đã ghi nhớ tên ' + member.name + '.');
+      }
+      setLoading(true, 'Đang lưu chế độ tự động...');
+      callServer('setAutoBooking', member.id, autoBook).then(data => {
+        state = data; closeOverlay('nameOverlay'); render(); setLoading(false);
+        toast(autoBook ? 'Đã bật tự động báo cơm Thứ 2–Thứ 6.' : 'Đã tắt tự động báo cơm.');
+      }).catch(showError);
+    }
+
+    function openHistory() { openOverlay('historyOverlay'); document.getElementById('historyResult').innerHTML = ''; const saved = getSavedMember(); if (saved) document.getElementById('historyMember').value = saved.id; }
+
+    function loadHistory() {
+      const memberId = document.getElementById('historyMember').value;
+      const month = document.getElementById('historyMonth').value;
+      if (!memberId || !month) return toast('Hãy chọn tên và tháng.', true);
+      setLoading(true, 'Đang tải lịch sử...');
+      callServer('getMonthlyHistory', memberId, month).then(data => {
+        setLoading(false);
+        const days = data.days.length ? data.days.map((day, index) => `<div class="history-day"><span>${index + 1}. ${escapeHtml(day.dateLabel)}</span><strong>1 suất</strong></div>`).join('') : '<div class="empty"><div class="empty-title">Chưa có suất ăn</div><p>Tháng này chưa có dữ liệu cho thành viên này.</p></div>';
+        document.getElementById('historyResult').innerHTML = `<div class="history-summary"><div><div class="history-summary-label">${escapeHtml(data.member)}</div><div>${escapeHtml(data.monthLabel)}</div></div><strong>${data.total}</strong></div><div class="history-days">${days}</div>`;
+      }).catch(showError);
+    }
+
+    function openOverlay(id) {
+      lastFocusedElement = document.activeElement;
+      const overlay = document.getElementById(id);
+      overlay.classList.add('show'); overlay.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeOverlay(id) {
+      const overlay = document.getElementById(id);
+      if (!overlay) return;
+      overlay.classList.remove('show'); overlay.setAttribute('aria-hidden', 'true');
+      if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') lastFocusedElement.focus();
+    }
+
+    function getSavedMember() { const id = localStorage.getItem(STORAGE_KEY); return id ? state.members.find(member => member.id === id) || null : null; }
+    function setLoading(show, message) { document.getElementById('loading').classList.toggle('show', show); if (message) document.getElementById('loadingText').textContent = message; }
+    function setConnection(message) { document.getElementById('connectionStatus').textContent = DEMO_MODE ? 'Chế độ xem thử' : message; }
+    function showError(error) { setLoading(false); setConnection('Chưa kết nối'); toast(error && error.message ? error.message : 'Không thể cập nhật dữ liệu. Hãy thử lại.', true); }
+    function toast(message, isError) { const el = document.getElementById('toast'); el.textContent = message; el.classList.toggle('error', Boolean(isError)); el.classList.add('show'); window.clearTimeout(toastTimer); toastTimer = window.setTimeout(() => el.classList.remove('show'), 3000); }
+    function initials(name) { return String(name || '').trim().split(/\s+/).slice(-2).map(part => part.charAt(0)).join('').toUpperCase(); }
+    function formatDate(date) { return new Intl.DateTimeFormat('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }).format(date); }
+    function formatShortDate(date) { return new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date); }
+    function dateInputValue(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
+    function nextWeekdayValue(date) {
+      const next = new Date(date);
+      while ([0, 6].includes(next.getDay())) next.setDate(next.getDate() + 1);
+      return dateInputValue(next);
+    }
+    function monthValue(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; }
+    function escapeHtml(value) { return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); }
+    function escapeAttr(value) { return escapeHtml(value); }
+  </script>
+</body>
+</html>
