@@ -251,9 +251,10 @@ Nhật ký `NHAT_KY` vẫn lưu mọi lần báo/hủy để có thể đối ch
 
 Admin Dashboard chạy trong Google Sheet, không đưa quyền quản trị vào Web App public. Sau `clasp push` và reload Sheet, mở menu **🍚 Quản trị cơm trưa → Mở Admin Dashboard** bằng tài khoản `vingocphuong.92@gmail.com` hoặc `anmphongandn@gmail.com`.
 
-Dùng điện thoại: mở [Admin mobile](https://script.google.com/macros/s/AKfycbwxL5XWo8Bti9IWe7bR_i3KnBdk1YhemSCb3NiLRdVf7jNYTsGIncJLDuL35iEQTSPVqA/exec/admin), đăng nhập Google rồi dùng một trong hai tài khoản Admin đã được cấp quyền.
+Dùng điện thoại: mở [Admin mobile](https://script.google.com/macros/s/AKfycbwxL5XWo8Bti9IWe7bR_i3KnBdk1YhemSCb3NiLRdVf7jNYTsGIncJLDuL35iEQTSPVqA/exec?admin=1). Link này có toàn quyền quản trị, chỉ chia sẻ cho người tin cậy.
 
 Chạy `setupApp()` một lần khi áp dụng schema mới. Hàm tạo `NGAY_NGHI` và mở rộng `NHAT_KY` mà không xóa lịch sử cũ. Khi Admin khóa ngày nghỉ, Web App, auto-book và email đều hiển thị “không tổ chức ăn trưa”.
 
 Sau khi sửa code, deploy lại Web App để người dùng nhận phiên bản `Index.html`/`Code.gs` mới. Admin dùng nút **Gửi báo cáo ngày** để gửi lại email nếu dashboard báo dữ liệu đã thay đổi sau lần gửi trước.
+
 

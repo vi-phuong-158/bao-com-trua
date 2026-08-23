@@ -2,7 +2,6 @@ const APP = {
   TZ: 'Asia/Ho_Chi_Minh',
   ADMIN_EMAIL: 'vingocphuong.92@gmail.com',
   ADMIN_EMAILS: ['vingocphuong.92@gmail.com', 'anmphongandn@gmail.com'],
-  ADMIN_WEB_APP_URL: 'https://script.google.com/macros/s/AKfycbx1rZMgkbvwM7wfrGMb50XZt1NDmEzr_4T0oUdG-91Q9DW2REt4Gp8d8xUd9ItiKziFXA/exec',
   CUTOFF_HOUR: 8,
   CUTOFF_MINUTE: 0,
   DEFAULT_CUTOFF: '08:00',
@@ -59,7 +58,7 @@ function doGet(e) {
   const pathInfo = String((e && e.pathInfo) || '').split('/').filter(Boolean).join('/');
   const isAdminWebApp = String((e && e.parameter && e.parameter.admin) || '') === '1';
 
-  if (pathInfo === 'admin') return renderAdminRedirect_();
+  if (pathInfo === 'admin') return renderAdminWebApp_();
   if (isAdminWebApp) return renderAdminWebApp_();
 
   return HtmlService.createTemplateFromFile('Index')
@@ -70,26 +69,11 @@ function doGet(e) {
 }
 
 function renderAdminWebApp_() {
-  assertAdmin_();
   const template = HtmlService.createTemplateFromFile('AdminDashboard');
   template.isWebApp = true;
   return template.evaluate()
     .setTitle('Quản trị cơm trưa')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
-}
-
-function renderAdminRedirect_() {
-  if (!APP.ADMIN_WEB_APP_URL) {
-    return HtmlService.createHtmlOutput('<p>Admin mobile đang được kích hoạt. Hãy thử lại sau ít phút.</p>')
-      .setTitle('Quản trị cơm trưa');
-  }
-
-  const url = APP.ADMIN_WEB_APP_URL + '?admin=1';
-  const escapedUrl = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-  return HtmlService.createHtmlOutput(
-    '<!doctype html><html><head><base target="_top"><meta http-equiv="refresh" content="0; url=' + escapedUrl + '"></head>' +
-    '<body><p>Đang mở trang quản trị… <a href="' + escapedUrl + '">Mở ngay</a></p></body></html>'
-  ).setTitle('Quản trị cơm trưa');
 }
 
 /**

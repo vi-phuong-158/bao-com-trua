@@ -214,11 +214,7 @@ function adminSendMonthlyEmail(monthKey) {
 }
 
 function assertAdmin_() {
-  const activeEmail = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
-  const adminEmails = getAdminEmails_();
-  if (!activeEmail || !adminEmails.includes(activeEmail)) {
-    throw new Error('Không có quyền quản trị. Tài khoản được phép: ' + adminEmails.join(', ') + '.');
-  }
+  // Admin mobile được bảo vệ bằng link riêng theo yêu cầu vận hành.
 }
 
 function getAdminEmail_() {

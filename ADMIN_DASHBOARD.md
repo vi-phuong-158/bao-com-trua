@@ -7,10 +7,10 @@ Admin Dashboard chạy trong Google Sheet dưới dạng Apps Script dialog. Web
 1. Chạy `setupApp()` một lần để tạo/migrate các sheet.
 2. Reload Google Sheet.
 3. Chọn menu **🍚 Quản trị cơm trưa → Mở Admin Dashboard**.
-4. Mở bằng tài khoản `vingocphuong.92@gmail.com` hoặc `anmphongandn@gmail.com`.
-5. Trên điện thoại, mở [Admin mobile](https://script.google.com/macros/s/AKfycbwxL5XWo8Bti9IWe7bR_i3KnBdk1YhemSCb3NiLRdVf7jNYTsGIncJLDuL35iEQTSPVqA/exec/admin), sau đó đăng nhập đúng tài khoản Admin.
+4. Mở Google Sheet bằng tài khoản có quyền chỉnh sửa Sheet.
+5. Trên điện thoại, mở [Admin mobile](https://script.google.com/macros/s/AKfycbwxL5XWo8Bti9IWe7bR_i3KnBdk1YhemSCb3NiLRdVf7jNYTsGIncJLDuL35iEQTSPVqA/exec?admin=1). Link này có toàn quyền quản trị, chỉ chia sẻ cho người tin cậy.
 
-Mọi hàm `admin*` đều kiểm tra `Session.getActiveUser().getEmail()` ở server-side. Không có API admin mở cho Web App anonymous.
+Admin mobile không kiểm tra email theo yêu cầu vận hành. Bất kỳ ai có link đều có thể thực hiện thao tác quản trị.
 
 ## Chức năng
 
@@ -53,4 +53,5 @@ Nếu dùng Apps Script UI, tạo/cập nhật 5 file: `Code.gs`, `Index.html`, 
 - Kiểm tra `NHAT_KY` có action và nguồn `ADMIN_*`, `USER_*`, `BOOK_AUTO`.
 
 Apps Script runtime/live deployment vẫn cần được kiểm tra trên Google Sheet thật; local validation không thay thế bước đó.
+
 
