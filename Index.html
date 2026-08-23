@@ -168,6 +168,10 @@
     .metric-foot { display: flex; justify-content: space-between; gap: 10px; color: rgba(255,255,255,.72); font-size: 12px; }
 
     .action-grid { margin-top: 14px; }
+    .closed-day-notice { display:none; margin-top:14px; padding:18px 20px; color:#92400e; background:#fff7ed; border:1px solid #fed7aa; border-radius:var(--radius-md); box-shadow:var(--shadow-soft); }
+    .closed-day-notice.show { display:block; }
+    .closed-day-notice strong { display:block; margin-bottom:4px; font-size:17px; }
+    .closed-day-notice span { color:#9a3412; font-size:13px; }
     .action-card, .note-card, .panel { background: rgba(255,253,248,.88); border: 1px solid rgba(222,216,204,.9); box-shadow: var(--shadow-soft); }
     .action-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 22px 24px; border-radius: var(--radius-md); }
     .action-card h2 { margin-bottom: 5px; font-size: 19px; letter-spacing: -.03em; }
@@ -402,6 +406,8 @@
         </div>
       </section>
 
+      <div id="closedDayNotice" class="closed-day-notice" role="status" aria-live="polite"><strong>🔒 Hôm nay không tổ chức ăn trưa</strong><span id="closedDayNoticeText">Ngày này đã được quản trị viên đặt là ngày nghỉ.</span></div>
+
       <section class="action-grid" aria-label="Thao tác chính">
         <div class="action-card">
           <div class="action-copy">
@@ -516,7 +522,7 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script>
-    let state = { members: [], booked: [], locked: false, total: 0, cutoffLabel: '08:00', today: '', monthlySummary: { monthLabel: '', total: 0, rows: [] } };
+    let state = { members: [], booked: [], locked: false, closedDay: { closed: false, note: '' }, total: 0, cutoffLabel: '08:00', today: '', monthlySummary: { monthLabel: '', total: 0, rows: [] } };
     let lastFocusedElement = null;
     let toastTimer;
     let isBookedListExpanded = false;
@@ -670,6 +676,14 @@
       renderMainButton();
     }
 
+    function renderClosedDay() {
+      const day = state.closedDay || { closed: false, note: '' };
+      const notice = document.getElementById('closedDayNotice');
+      notice.classList.toggle('show', Boolean(day.closed));
+      document.getElementById('closedDayNoticeText').textContent = day.note
+        ? `Ngày này đã được quản trị viên đặt là ngày nghỉ. ${day.note}`
+        : 'Ngày này đã được quản trị viên đặt là ngày nghỉ.';
+    }
     function renderBookedList() {
       const el = document.getElementById('bookedList');
       const toggle = document.getElementById('bookedListToggle');
@@ -730,15 +744,17 @@
     function renderMainButton() {
       const btn = document.getElementById('bookBtn');
       const saved = getSavedMember();
+      const closed = Boolean(state.closedDay && state.closedDay.closed);
       const isBooked = Boolean(saved && state.booked.some(booking => booking.memberId === saved.id));
-      btn.disabled = state.locked;
-      btn.className = 'button ' + (state.locked ? 'button-secondary' : isBooked ? 'button-danger' : 'button-primary');
-      btn.textContent = state.locked ? '🔒 Đã chốt danh sách' : isBooked ? '↩ Hủy báo cơm hôm nay' : '🍚 Báo cơm hôm nay';
-      document.getElementById('actionTitle').textContent = state.locked ? 'Danh sách hôm nay đã chốt' : isBooked ? 'Bạn đã báo cơm hôm nay' : 'Bạn ăn trưa hôm nay?';
-      document.getElementById('actionDescription').textContent = state.locked ? 'Không thể thay đổi sau giờ chốt.' : isBooked ? 'Cần đổi ý? Bạn vẫn có thể hủy trước giờ chốt.' : `Báo trước ${state.cutoffLabel} để bếp chuẩn bị đủ phần.`;
+      btn.disabled = state.locked || closed;
+      btn.className = 'button ' + (closed || state.locked ? 'button-secondary' : isBooked ? 'button-danger' : 'button-primary');
+      btn.textContent = closed ? '🔒 Không tổ chức ăn hôm nay' : state.locked ? '🔒 Đã chốt danh sách' : isBooked ? '↩ Hủy báo cơm hôm nay' : '🍚 Báo cơm hôm nay';
+      document.getElementById('actionTitle').textContent = closed ? 'Hôm nay không tổ chức ăn trưa' : state.locked ? 'Danh sách hôm nay đã chốt' : isBooked ? 'Bạn đã báo cơm hôm nay' : 'Bạn ăn trưa hôm nay?';
+      document.getElementById('actionDescription').textContent = closed ? (state.closedDay.note || 'Quản trị viên đã khóa ngày này là ngày nghỉ.') : state.locked ? 'Không thể thay đổi sau giờ chốt.' : isBooked ? 'Cần đổi ý? Bạn vẫn có thể hủy trước giờ chốt.' : `Báo trước ${state.cutoffLabel} để bếp chuẩn bị đủ phần.`;
     }
 
     function handleMainAction() {
+      if (state.closedDay && state.closedDay.closed) return toast('Hôm nay không tổ chức ăn trưa.');
       if (state.locked) return toast('Danh sách hôm nay đã chốt.');
       const saved = getSavedMember();
       if (!saved) return openNamePicker();

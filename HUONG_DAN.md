@@ -68,12 +68,13 @@ Google sẽ hỏi quyền lần đầu. Chấp nhận để script:
 - gửi email;
 - tạo trigger tự động.
 
-Sau khi chạy xong sẽ có 4 sheet:
+Sau khi chạy xong sẽ có 5 sheet:
 
 1. `THANH_VIEN`
 2. `CHAM_COM`
 3. `NHAT_KY`
 4. `CAU_HINH`
+5. `NGAY_NGHI`
 
 ---
 
@@ -240,3 +241,11 @@ Hệ thống nhận diện bằng **tên người dùng tự chọn**, vì vậy
 Đối với hội cơm nội bộ khoảng 30 người, đây thường là đánh đổi hợp lý để mọi người dùng nhanh, không cần tài khoản và mật khẩu.
 
 Nhật ký `NHAT_KY` vẫn lưu mọi lần báo/hủy để có thể đối chiếu khi cần.
+
+## 11. Admin Dashboard và ngày nghỉ
+
+Admin Dashboard chạy trong Google Sheet, không đưa quyền quản trị vào Web App public. Sau `clasp push` và reload Sheet, mở menu **🍚 Quản trị cơm trưa → Mở Admin Dashboard** bằng tài khoản `vingocphuong.92@gmail.com`.
+
+Chạy `setupApp()` một lần khi áp dụng schema mới. Hàm tạo `NGAY_NGHI` và mở rộng `NHAT_KY` mà không xóa lịch sử cũ. Khi Admin khóa ngày nghỉ, Web App, auto-book và email đều hiển thị “không tổ chức ăn trưa”.
+
+Sau khi sửa code, deploy lại Web App để người dùng nhận phiên bản `Index.html`/`Code.gs` mới. Admin dùng nút **Gửi báo cáo ngày** để gửi lại email nếu dashboard báo dữ liệu đã thay đổi sau lần gửi trước.

@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --red:#b91c1c; --red-dark:#991b1b; --green:#15803d; --amber:#b45309;
+      --blue:#1d4ed8; --bg:#f8fafc; --card:#fff; --text:#111827; --muted:#6b7280;
+      --line:#e5e7eb; --soft:#f3f4f6;
+    }
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,Arial,sans-serif}
+    button,input{font:inherit} button{cursor:pointer}
+    .app{min-height:100vh;padding:18px}.top{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px}
+    h1{margin:0;font-size:25px}.sub{color:var(--muted);font-size:13px;margin-top:5px}.close{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 12px}
+    .toolbar,.panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:14px;box-shadow:0 3px 12px rgba(15,23,42,.04)}
+    .toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:end}.day-status{display:flex;flex-wrap:wrap;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:14px}.day-status strong{font-size:14px}.day-status.closed{background:#fff7ed;border-color:#fed7aa;color:#9a3412}.day-status.open{background:#f0fdf4;border-color:#bbf7d0;color:#166534}.day-status .note{flex:1;min-width:220px;border:1px solid #d1d5db;border-radius:9px;padding:8px 10px}.email-state{margin-left:auto;color:var(--muted);font-size:12px}.email-state.dirty{color:var(--red);font-weight:800}.field label{display:block;font-size:12px;font-weight:800;color:#374151;margin-bottom:5px}
+    .field input{border:1px solid #d1d5db;border-radius:10px;padding:9px 10px;background:#fff}.grow{flex:1;min-width:220px}
+    .btn{border:0;border-radius:10px;padding:10px 13px;font-weight:800}.primary{background:var(--red);color:#fff}.green{background:var(--green);color:#fff}.amber{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa}.blue{background:#eff6ff;color:var(--blue);border:1px solid #bfdbfe}.ghost{background:#fff;color:#374151;border:1px solid var(--line)}.danger{background:#fef2f2;color:var(--red);border:1px solid #fecaca}
+    .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px}.card .label{font-size:12px;color:var(--muted);font-weight:800}.card strong{display:block;font-size:28px;margin-top:4px}
+    .section-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px}.section-head h2{margin:0;font-size:18px}.section-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .search{width:100%;border:1px solid #d1d5db;border-radius:10px;padding:10px 12px;margin-bottom:10px}
+    .table-wrap{overflow:auto;max-height:365px;border:1px solid var(--line);border-radius:12px}table{width:100%;border-collapse:collapse;min-width:900px}th,td{padding:9px 10px;border-bottom:1px solid #eef2f7;text-align:left;font-size:13px}th{position:sticky;top:0;background:#f8fafc;z-index:1;color:#374151}tr.inactive{opacity:.52}.name{font-weight:800}.muted{color:var(--muted);font-size:12px}
+    .badge{display:inline-flex;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:900}.booked{background:#dcfce7;color:#166534}.cancelled{background:#fee2e2;color:#991b1b}.none{background:#f3f4f6;color:#4b5563}
+    .row-actions{display:flex;gap:5px;white-space:nowrap}.mini{border-radius:8px;padding:6px 8px;font-size:11px;font-weight:800;border:1px solid var(--line);background:#fff}.mini.proxy{color:var(--green);border-color:#bbf7d0}.mini.outside{color:var(--blue);border-color:#bfdbfe}.mini.cut{color:var(--red);border-color:#fecaca}.mini.clear{color:#6b7280}
+    .switch{display:inline-flex;align-items:center;gap:6px;font-size:12px}.switch input{accent-color:var(--red)}
+    .grid2{display:grid;grid-template-columns:1.3fr .7fr;gap:14px}.summary-list{max-height:255px;overflow:auto;border:1px solid var(--line);border-radius:10px}.summary-row{display:flex;justify-content:space-between;padding:8px 10px;border-bottom:1px solid #f1f5f9;font-size:13px}.summary-row:last-child{border-bottom:0}
+    .add-row{display:flex;gap:8px}.add-row input{flex:1;border:1px solid #d1d5db;border-radius:10px;padding:10px}.hint{font-size:12px;color:var(--muted);line-height:1.5}.toast{position:fixed;right:18px;bottom:18px;background:#111827;color:#fff;padding:11px 14px;border-radius:10px;opacity:0;transform:translateY(10px);pointer-events:none;transition:.2s;max-width:420px}.toast.show{opacity:1;transform:translateY(0)}
+    .loading{position:fixed;inset:0;background:rgba(248,250,252,.72);display:none;place-items:center;z-index:20}.loading.show{display:grid}.spinner{width:38px;height:38px;border:4px solid #e5e7eb;border-top-color:var(--red);border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+    @media(max-width:850px){.cards{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}.app{padding:10px}.top{align-items:center}.toolbar{align-items:stretch}.field{flex:1;min-width:150px}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <div>
+      <h1>🍚 Admin Dashboard</h1>
+      <div class="sub" id="adminInfo">Đang tải quyền quản trị...</div>
+    </div>
+    <button class="close" onclick="google.script.host.close()">Đóng</button>
+  </div>
+
+  <div class="toolbar">
+    <div class="field"><label>Ngày quản lý</label><input id="datePicker" type="date" onchange="refresh()"></div>
+    <div class="field"><label>Tháng thống kê</label><input id="monthPicker" type="month" onchange="refresh()"></div>
+    <div class="field"><label>Giờ chốt</label><input id="cutoff" type="time"></div>
+    <button class="btn ghost" onclick="saveCutoff()">Lưu giờ chốt</button>
+    <div class="grow"></div>
+    <button class="btn blue" onclick="sendDailyEmail()">✉ Gửi báo cáo ngày</button>
+    <button class="btn ghost" onclick="sendMonthlyEmail()">📊 Gửi tổng kết tháng</button>
+  </div>
+
+  <div id="dayStatus" class="day-status open">
+    <strong id="dayStatusLabel">Ngày đang mở</strong>
+    <span id="dayStatusNote"></span>
+    <input id="closedDayNote" class="note" placeholder="Ghi chú ngày nghỉ (không bắt buộc)">
+    <button id="closeDayBtn" class="btn danger" onclick="closeDay()">🔒 Khóa ngày nghỉ</button>
+    <button id="reopenDayBtn" class="btn green" onclick="reopenDay()" hidden>↩ Mở lại ngày</button>
+    <span id="emailState" class="email-state"></span>
+  </div>
+  <div class="cards">
+    <div class="card"><span class="label">Thành viên hoạt động</span><strong id="countActive">0</strong></div>
+    <div class="card"><span class="label">Đã đặt</span><strong id="countBooked">0</strong></div>
+    <div class="card"><span class="label">Đã cắt</span><strong id="countCancelled">0</strong></div>
+    <div class="card"><span class="label">Chưa báo</span><strong id="countNone">0</strong></div>
+  </div>
+
+  <div class="panel">
+    <div class="section-head">
+      <div><h2>Quản lý suất theo ngày</h2><div class="sub" id="selectedDateLabel"></div></div>
+      <div class="section-actions">
+        <button class="btn green" onclick="bulkSet('BOOK_ALL')">Đặt tất cả</button>
+        <button class="btn danger" onclick="bulkSet('CANCEL_ALL')">Cắt tất cả</button>
+      </div>
+    </div>
+    <input id="search" class="search" placeholder="Tìm theo họ tên..." oninput="renderTable()">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Họ tên</th><th>Trạng thái</th><th>Nguồn</th><th>Cập nhật</th><th>Tự động</th><th>Hoạt động</th><th>Thao tác</th></tr></thead>
+        <tbody id="memberRows"></tbody>
+      </table>
+    </div>
+    <p class="hint">“Đánh hộ” dùng khi lãnh đạo/thành viên nhờ anh ghi giúp. “Báo ngoài” dùng khi họ báo qua điện thoại, Zalo hoặc trực tiếp. “Xóa” đưa về trạng thái chưa báo nhưng vẫn giữ nhật ký.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <div class="section-head">
+        <div><h2 id="monthTitle">Tổng hợp tháng</h2><div class="sub" id="monthTotal"></div></div>
+      </div>
+      <div class="summary-list" id="monthSummary"></div>
+    </div>
+
+    <div class="panel">
+      <h2 style="margin-top:0">Thành viên</h2>
+      <div class="add-row">
+        <input id="newMemberName" placeholder="Họ tên thành viên mới">
+        <button class="btn primary" onclick="addMember()">Thêm</button>
+      </div>
+      <p class="hint">Không xóa cứng người đã có lịch sử. Khi một người tạm nghỉ hoặc rời hội, tắt “Hoạt động” trong bảng phía trên để vẫn giữ số liệu các tháng cũ.</p>
+    </div>
+  </div>
+</div>
+
+<div class="loading" id="loading"><div class="spinner"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+  let state = { rows: [], counts: {}, monthlySummary: { rows: [] } };
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const today = new Date();
+    const local = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0,10);
+    document.getElementById('datePicker').value = local;
+    document.getElementById('monthPicker').value = local.slice(0,7);
+    refresh();
+  });
+
+  function server() {
+    return google.script.run.withSuccessHandler(data => {
+      setLoading(false);
+      if (data && data.rows && data.counts) {
+        state = data;
+        render();
+      } else if (data && data.message) {
+        toast(data.message);
+      }
+    }).withFailureHandler(err => {
+      setLoading(false);
+      toast(errorMessage(err));
+    });
+  }
+
+  function refresh() {
+    setLoading(true);
+    server().adminGetDashboardData(dateValue(), monthValue());
+  }
+
+  function render() {
+    document.getElementById('adminInfo').textContent = `Quản trị: ${state.adminEmail} · không ảnh hưởng màn Web App công khai`;
+    document.getElementById('selectedDateLabel').textContent = state.selectedDateLabel;
+    document.getElementById('cutoff').value = state.cutoff;
+    renderDayStatus();
+    document.getElementById('countActive').textContent = state.counts.active;
+    document.getElementById('countBooked').textContent = state.counts.booked;
+    document.getElementById('countCancelled').textContent = state.counts.cancelled;
+    document.getElementById('countNone').textContent = state.counts.none;
+    renderTable();
+    renderMonth();
+  }
+
+  function renderDayStatus() {
+    const day = state.closedDay || { closed: false, note: '' };
+    const box = document.getElementById('dayStatus');
+    box.classList.toggle('closed', Boolean(day.closed));
+    box.classList.toggle('open', !day.closed);
+    document.getElementById('dayStatusLabel').textContent = day.closed ? '🔒 Ngày nghỉ — không tổ chức ăn' : '🟢 Ngày đang mở';
+    document.getElementById('dayStatusNote').textContent = day.note ? `Ghi chú: ${day.note}` : '';
+    document.getElementById('closedDayNote').value = day.note || '';
+    document.getElementById('closeDayBtn').hidden = Boolean(day.closed);
+    document.getElementById('reopenDayBtn').hidden = !day.closed;
+    const email = state.emailStatus || {};
+    const emailEl = document.getElementById('emailState');
+    emailEl.classList.toggle('dirty', Boolean(email.dirty));
+    emailEl.textContent = !email.sent ? 'Email ngày: chưa gửi' : email.dirty ? '⚠ Dữ liệu đã thay đổi sau lần gửi email gần nhất' : `Email ngày: đã gửi ${email.total ?? 0} suất`;
+  }
+
+  function closeDay() {
+    const note = document.getElementById('closedDayNote').value.trim();
+    if (!confirm(`KHÓA ngày ${dateValue()} là ngày nghỉ? Người dùng và auto-book sẽ không tạo suất.`)) return;
+    setLoading(true);
+    server().adminCloseDay(dateValue(), note, monthValue());
+  }
+
+  function reopenDay() {
+    if (!confirm(`Mở lại ngày ${dateValue()} để cho phép báo cơm?`)) return;
+    setLoading(true);
+    server().adminReopenDay(dateValue(), monthValue());
+  }
+  function renderTable() {
+    const q = normalize(document.getElementById('search').value);
+    const rows = state.rows.filter(row => !q || normalize(row.name).includes(q));
+    document.getElementById('memberRows').innerHTML = rows.map(row => {
+      const badgeClass = row.status === 'BOOKED' ? 'booked' : row.status === 'CANCELLED' ? 'cancelled' : 'none';
+      return `<tr class="${row.active ? '' : 'inactive'}">
+        <td><div class="name">${esc(row.name)}</div><div class="muted">${esc(row.memberId)}</div></td>
+        <td><span class="badge ${badgeClass}">${esc(row.statusLabel)}</span></td>
+        <td>${esc(row.sourceLabel || '—')}</td>
+        <td>${esc(row.updatedAt || '—')}</td>
+        <td><label class="switch"><input type="checkbox" ${row.autoBook ? 'checked' : ''} onchange="setAuto('${attr(row.memberId)}', this.checked)"> T2–T6</label></td>
+        <td><label class="switch"><input type="checkbox" ${row.active ? 'checked' : ''} onchange="setActive('${attr(row.memberId)}', this.checked)"> Bật</label></td>
+        <td><div class="row-actions">
+          <button class="mini proxy" onclick="book('${attr(row.memberId)}','PROXY')">Đánh hộ</button>
+          <button class="mini outside" onclick="book('${attr(row.memberId)}','OUTSIDE')">Báo ngoài</button>
+          <button class="mini cut" onclick="cancelMeal('${attr(row.memberId)}')">Cắt</button>
+          <button class="mini clear" onclick="clearMeal('${attr(row.memberId)}')">Xóa</button>
+        </div></td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderMonth() {
+    const m = state.monthlySummary || { rows: [], total: 0, monthLabel: '' };
+    document.getElementById('monthTitle').textContent = `Tổng hợp ${m.monthLabel || ''}`;
+    document.getElementById('monthTotal').textContent = `Tổng cộng ${m.total || 0} suất`;
+    document.getElementById('monthSummary').innerHTML = (m.rows || []).map((row, i) =>
+      `<div class="summary-row"><span>${i + 1}. ${esc(row.name)}${row.active ? '' : ' (đã tạm ngừng)'}</span><strong>${row.total} suất</strong></div>`
+    ).join('') || '<div class="summary-row"><span>Chưa có dữ liệu</span><strong>0</strong></div>';
+  }
+
+  function book(memberId, mode) {
+    setLoading(true);
+    server().adminBookMeal(memberId, dateValue(), mode, monthValue());
+  }
+
+  function cancelMeal(memberId) {
+    setLoading(true);
+    server().adminCancelMeal(memberId, dateValue(), monthValue());
+  }
+
+  function clearMeal(memberId) {
+    if (!confirm('Đưa người này về trạng thái “Chưa báo”? Nhật ký vẫn được giữ.')) return;
+    setLoading(true);
+    server().adminClearMeal(memberId, dateValue(), monthValue());
+  }
+
+  function bulkSet(action) {
+    const text = action === 'BOOK_ALL' ? 'ĐẶT cơm cho toàn bộ thành viên đang hoạt động' : 'CẮT cơm của toàn bộ thành viên đang hoạt động';
+    if (!confirm(`${text} ngày ${dateValue()}?`)) return;
+    setLoading(true);
+    server().adminBulkSetMeals(dateValue(), action, monthValue());
+  }
+
+  function setAuto(memberId, enabled) {
+    setLoading(true);
+    server().adminSetAutoBooking(memberId, enabled, dateValue(), monthValue());
+  }
+
+  function setActive(memberId, enabled) {
+    if (!enabled && !confirm('Tạm ngừng thành viên này? Lịch sử suất ăn cũ vẫn được giữ.')) {
+      refresh();
+      return;
+    }
+    setLoading(true);
+    server().adminSetMemberActive(memberId, enabled, dateValue(), monthValue());
+  }
+
+  function addMember() {
+    const input = document.getElementById('newMemberName');
+    const name = input.value.trim();
+    if (!name) return toast('Hãy nhập họ tên.');
+    setLoading(true);
+    google.script.run.withSuccessHandler(data => {
+      setLoading(false); input.value = ''; state = data; render(); toast('Đã thêm thành viên.');
+    }).withFailureHandler(err => { setLoading(false); toast(errorMessage(err)); })
+      .adminAddMember(name, dateValue(), monthValue());
+  }
+
+  function saveCutoff() {
+    const value = document.getElementById('cutoff').value;
+    if (!value) return toast('Hãy chọn giờ chốt.');
+    setLoading(true);
+    server().adminSaveCutoff(value, dateValue(), monthValue());
+  }
+
+  function sendDailyEmail() {
+    if (!confirm(`Gửi email báo cáo ngày ${dateValue()} ngay bây giờ?`)) return;
+    setLoading(true);
+    google.script.run.withSuccessHandler(result => { setLoading(false); toast(result.message || 'Đã gửi email.'); refresh(); }).withFailureHandler(err => { setLoading(false); toast(errorMessage(err)); }).adminSendDailyEmail(dateValue());
+  }
+
+  function sendMonthlyEmail() {
+    if (!confirm(`Gửi email tổng kết tháng ${monthValue()} ngay bây giờ?`)) return;
+    setLoading(true);
+    google.script.run.withSuccessHandler(result => { setLoading(false); toast(result.message || 'Đã gửi email.'); }).withFailureHandler(err => { setLoading(false); toast(errorMessage(err)); }).adminSendMonthlyEmail(monthValue());
+  }
+
+  function dateValue(){ return document.getElementById('datePicker').value; }
+  function monthValue(){ return document.getElementById('monthPicker').value; }
+  function setLoading(show){ document.getElementById('loading').classList.toggle('show', !!show); }
+
+  let toastTimer;
+  function toast(message){
+    const el = document.getElementById('toast'); el.textContent = message; el.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 3200);
+  }
+  function errorMessage(err){ return err && err.message ? err.message : String(err || 'Có lỗi xảy ra.'); }
+  function normalize(s){ return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase(); }
+  function esc(s){ return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
+  function attr(s){ return esc(s); }
+</script>
+</body>
+</html>

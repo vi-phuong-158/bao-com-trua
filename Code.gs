@@ -2,7 +2,8 @@ const APP = {
   TZ: 'Asia/Ho_Chi_Minh',
   ADMIN_EMAIL: 'vingocphuong.92@gmail.com',
   CUTOFF_HOUR: 8,
-  CUTOFF_MINUTE: 30,
+  CUTOFF_MINUTE: 0,
+  DEFAULT_CUTOFF: '08:00',
   PRIORITY_MEMBER_NAME: 'Đỗ Đức Cường',
   DEFAULT_MEMBER_NAMES: [
     'Ngô Đức Thành',
@@ -48,6 +49,7 @@ const APP = {
     BOOKINGS: 'CHAM_COM',
     AUDIT: 'NHAT_KY',
     CONFIG: 'CAU_HINH',
+    CLOSED_DAYS: 'NGAY_NGHI',
   },
 };
 
@@ -69,8 +71,9 @@ function setupApp() {
 
   ensureSheet_(ss, APP.SHEETS.MEMBERS, ['ID', 'HO_TEN', 'DANG_HOAT_DONG', 'TU_DONG_BAO_COM']);
   ensureSheet_(ss, APP.SHEETS.BOOKINGS, ['NGAY', 'MEMBER_ID', 'HO_TEN', 'TRANG_THAI', 'CAP_NHAT_LUC']);
-  ensureSheet_(ss, APP.SHEETS.AUDIT, ['THOI_GIAN', 'NGAY', 'MEMBER_ID', 'HO_TEN', 'HANH_DONG']);
+  ensureSheet_(ss, APP.SHEETS.AUDIT, ['THOI_GIAN', 'NGAY', 'MEMBER_ID', 'HO_TEN', 'HANH_DONG', 'NGUON', 'GHI_CHU']);
   ensureSheet_(ss, APP.SHEETS.CONFIG, ['KEY', 'VALUE']);
+  ensureSheet_(ss, APP.SHEETS.CLOSED_DAYS, ['NGAY', 'TRANG_THAI', 'GHI_CHU', 'CAP_NHAT_BOI', 'CAP_NHAT_LUC']);
 
   const seeded = seedDefaultMembers_(ss);
   seedConfig_(ss);
@@ -143,7 +146,8 @@ function getInitialData() {
     today: dateDisplay_(now),
     dateKey,
     cutoffLabel: cutoffLabel_(),
-    locked: isLocked_(now),
+    closedDay: getClosedDay_(dateKey),
+    locked: isLocked_(now) || isClosedDay_(dateKey),
     members,
     autoBookMembers: members
       .filter(member => member.autoBook)
@@ -163,31 +167,16 @@ function getMonthlySummary_(monthKey) {
   const members = getMembers_();
   const counts = {};
   members.forEach(member => { counts[member.id] = 0; });
-
-  const sh = getSheet_(APP.SHEETS.BOOKINGS);
-  const lastRow = sh.getLastRow();
-  if (lastRow >= 2) {
-    sh.getRange(2, 1, lastRow - 1, 5).getValues().forEach(row => {
-      const date = normalizeDateCell_(row[0]);
-      const id = String(row[1] || '');
-      if (date.startsWith(normalized + '-') && String(row[3] || '') === 'BOOKED' && id in counts) {
-        counts[id]++;
-      }
-    });
-  }
-
-  const rows = members
-    .map(member => ({ memberId: member.id, name: member.name, total: counts[member.id] || 0 }))
+  const states = getFinalBookingStateMap_(normalized);
+  const closedDays = getClosedDayMap_(normalized);
+  Object.keys(states).forEach(key => {
+    const state = states[key];
+    if (state.status === 'BOOKED' && !closedDays[state.dateKey] && state.memberId in counts) counts[state.memberId]++;
+  });
+  const rows = members.map(member => ({ memberId: member.id, name: member.name, total: counts[member.id] || 0 }))
     .sort((a, b) => b.total - a.total || memberDisplayOrder_(a, b));
-
-  return {
-    month: normalized,
-    monthLabel: monthDisplay_(normalized),
-    total: rows.reduce((sum, row) => sum + row.total, 0),
-    rows,
-  };
+  return { month: normalized, monthLabel: monthDisplay_(normalized), total: rows.reduce((sum, row) => sum + row.total, 0), rows };
 }
-
 function bookToday(memberId) {
   return changeBooking_(memberId, 'BOOK');
 }
@@ -213,6 +202,10 @@ function cancelFutureMeal(memberId, targetDateKey) {
     throw new Error('Ngày đã chọn là cuối tuần, hệ thống không tự báo cơm ngày này.');
   }
 
+  if (isClosedDay_(dateKey)) {
+    throw new Error('Ngày này đã được quản trị viên khóa là ngày nghỉ.');
+  }
+
   const member = getMemberById_(memberId);
   if (!member) throw new Error('Không tìm thấy thành viên hoặc thành viên đã ngừng hoạt động.');
 
@@ -228,10 +221,7 @@ function cancelFutureMeal(memberId, targetDateKey) {
     } else {
       sh.appendRow(row);
     }
-
-    getSheet_(APP.SHEETS.AUDIT).appendRow([
-      now, dateKey, member.id, member.name, 'CANCEL_FUTURE'
-    ]);
+    appendAudit_(dateKey, member, 'USER_CANCEL_FUTURE', 'USER', '');
   } finally {
     lock.releaseLock();
   }
@@ -242,34 +232,15 @@ function cancelFutureMeal(memberId, targetDateKey) {
 function getFutureCancellations(memberId) {
   const member = getMemberById_(memberId);
   if (!member) throw new Error('Không tìm thấy thành viên hoặc thành viên đã ngừng hoạt động.');
-
   const todayKey = dateKey_(new Date());
-  const sh = getSheet_(APP.SHEETS.BOOKINGS);
-  const lastRow = sh.getLastRow();
-  if (lastRow < 2) return { ok: true, member: member.name, days: [] };
-
-  const days = sh.getRange(2, 1, lastRow - 1, 5).getValues()
-    .map(row => ({
-      dateKey: normalizeDateCell_(row[0]),
-      memberId: String(row[1] || ''),
-      status: String(row[3] || ''),
-    }))
-    .filter(row => row.memberId === member.id && row.dateKey > todayKey && row.status === 'CANCELLED')
-    .map(row => ({
-      dateKey: row.dateKey,
-      dateLabel: dateDisplayFromKey_(row.dateKey),
-    }));
-
-  return {
-    ok: true,
-    member: member.name,
-    days: days
-      .filter((day, index, rows) => rows.findIndex(item => item.dateKey === day.dateKey) === index)
-      .sort((a, b) => a.dateKey.localeCompare(b.dateKey)),
-  };
+  const seen = {};
+  getBookingRows_().forEach(row => {
+    if (row.memberId !== member.id || row.dateKey <= todayKey || row.status !== 'CANCELLED') return;
+    const previous = seen[row.dateKey];
+    if (!previous || row.rowNumber >= previous.rowNumber) seen[row.dateKey] = row;
+  });
+  return { ok: true, member: member.name, days: Object.keys(seen).map(dateKey => ({ dateKey, dateLabel: dateDisplayFromKey_(dateKey) })).sort((a, b) => a.dateKey.localeCompare(b.dateKey)) };
 }
-
-/** Bật/tắt báo cơm tự động cho một thành viên vào các ngày Thứ 2–Thứ 6. */
 function setAutoBooking(memberId, enabled) {
   const member = getMemberById_(memberId);
   if (!member) throw new Error('Không tìm thấy thành viên hoặc thành viên đã ngừng hoạt động.');
@@ -280,9 +251,7 @@ function setAutoBooking(memberId, enabled) {
     const now = new Date();
     const autoBook = parseBool_(enabled);
     getSheet_(APP.SHEETS.MEMBERS).getRange(member.rowNumber, 4).setValue(autoBook);
-    getSheet_(APP.SHEETS.AUDIT).appendRow([
-      now, dateKey_(now), member.id, member.name, autoBook ? 'AUTO_BOOK_ON' : 'AUTO_BOOK_OFF'
-    ]);
+    appendAudit_(dateKey_(now), member, autoBook ? 'AUTO_BOOK_ON' : 'AUTO_BOOK_OFF', 'USER', '');
   } finally {
     lock.releaseLock();
   }
@@ -292,6 +261,10 @@ function setAutoBooking(memberId, enabled) {
 
 function changeBooking_(memberId, action) {
   const now = new Date();
+  const todayKey = dateKey_(now);
+  if (isClosedDay_(todayKey)) {
+    throw new Error('Hôm nay không tổ chức ăn trưa.');
+  }
   if (isLocked_(now)) {
     throw new Error(`Đã quá ${cutoffLabel_()}. Danh sách cơm hôm nay đã chốt.`);
   }
@@ -315,10 +288,7 @@ function changeBooking_(memberId, action) {
     } else {
       sh.appendRow([dateKey, member.id, member.name, status, now]);
     }
-
-    getSheet_(APP.SHEETS.AUDIT).appendRow([
-      now, dateKey, member.id, member.name, action
-    ]);
+    appendAudit_(dateKey, member, action === 'BOOK' ? 'USER_BOOK' : 'USER_CANCEL', 'USER', '');
   } finally {
     lock.releaseLock();
   }
@@ -326,43 +296,109 @@ function changeBooking_(memberId, action) {
   return getInitialData();
 }
 
+function getBookingRows_() {
+  const sh = getSheet_(APP.SHEETS.BOOKINGS);
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return [];
+  return sh.getRange(2, 1, lastRow - 1, 5).getValues().map((row, index) => ({
+    rowNumber: index + 2,
+    dateKey: normalizeDateCell_(row[0]),
+    memberId: String(row[1] || ''),
+    name: String(row[2] || ''),
+    status: String(row[3] || ''),
+    updatedAt: row[4],
+  }));
+}
+
+function getFinalBookingStateMap_(monthKey) {
+  const normalized = normalizeMonthKey_(monthKey);
+  const states = {};
+  getBookingRows_().forEach(row => {
+    if (!row.dateKey.startsWith(normalized + '-')) return;
+    const key = `${row.dateKey}|${row.memberId}`;
+    const previous = states[key];
+    if (!previous || row.rowNumber >= previous.rowNumber) states[key] = row;
+  });
+  return states;
+}
+
+function getFinalBookingStateForDate_(dateKey) {
+  const states = {};
+  getBookingRows_().forEach(row => {
+    if (row.dateKey !== dateKey) return;
+    const previous = states[row.memberId];
+    if (!previous || row.rowNumber >= previous.rowNumber) states[row.memberId] = row;
+  });
+  return states;
+}
+
+function appendAudit_(dateKey, member, action, source, note, at) {
+  const sh = getSheet_(APP.SHEETS.AUDIT);
+  sh.appendRow([
+    at || new Date(),
+    dateKey || '',
+    member && member.id ? member.id : '',
+    member && member.name ? member.name : '',
+    action || '',
+    source || '',
+    note || '',
+  ]);
+}
+
+function getClosedDay_(dateKey) {
+  try {
+    const sh = getSheet_(APP.SHEETS.CLOSED_DAYS);
+    const lastRow = sh.getLastRow();
+    if (lastRow < 2) return { closed: false, status: 'OPEN', note: '', updatedBy: '', updatedAt: '' };
+    const rows = sh.getRange(2, 1, lastRow - 1, 5).getValues();
+    let latest = null;
+    rows.forEach(row => {
+      if (normalizeDateCell_(row[0]) === dateKey) latest = row;
+    });
+    if (!latest) return { closed: false, status: 'OPEN', note: '', updatedBy: '', updatedAt: '' };
+    return {
+      closed: String(latest[1] || '').toUpperCase() === 'CLOSED',
+      status: String(latest[1] || 'OPEN').toUpperCase(),
+      note: String(latest[2] || ''),
+      updatedBy: String(latest[3] || ''),
+      updatedAt: formatDateTime_(latest[4]),
+    };
+  } catch (error) {
+    return { closed: false, status: 'OPEN', note: '', updatedBy: '', updatedAt: '' };
+  }
+}
+
+function isClosedDay_(dateKey) {
+  return getClosedDay_(dateKey).closed;
+}
+function getClosedDayMap_(monthKey) {
+  const normalized = normalizeMonthKey_(monthKey);
+  const result = {};
+  try {
+    const sh = getSheet_(APP.SHEETS.CLOSED_DAYS);
+    const lastRow = sh.getLastRow();
+    if (lastRow < 2) return result;
+    sh.getRange(2, 1, lastRow - 1, 5).getValues().forEach(row => {
+      const date = normalizeDateCell_(row[0]);
+      if (!date.startsWith(normalized + '-')) return;
+      result[date] = String(row[1] || '').toUpperCase() === 'CLOSED';
+    });
+  } catch (error) {
+    return result;
+  }
+  return result;
+}
 function getMonthlyHistory(memberId, monthKey) {
   const member = getMemberById_(memberId);
   if (!member) throw new Error('Không tìm thấy thành viên.');
-
   const normalized = normalizeMonthKey_(monthKey);
-  const sh = getSheet_(APP.SHEETS.BOOKINGS);
-  const lastRow = sh.getLastRow();
-  const days = [];
-
-  if (lastRow >= 2) {
-    const values = sh.getRange(2, 1, lastRow - 1, 5).getValues();
-    values.forEach(row => {
-      const date = normalizeDateCell_(row[0]);
-      const id = String(row[1] || '');
-      const status = String(row[3] || '');
-      if (id === member.id && status === 'BOOKED' && date.startsWith(normalized + '-')) {
-        days.push({
-          dateKey: date,
-          dateLabel: dateDisplayFromKey_(date),
-          updatedAt: formatDateTime_(row[4]),
-        });
-      }
-    });
-  }
-
-  days.sort((a, b) => a.dateKey.localeCompare(b.dateKey));
-
-  return {
-    ok: true,
-    member: member.name,
-    month: normalized,
-    monthLabel: monthDisplay_(normalized),
-    total: days.length,
-    days,
-  };
+  const states = getFinalBookingStateMap_(normalized);
+  const days = Object.keys(states).map(key => states[key])
+    .filter(row => row.memberId === member.id && row.status === 'BOOKED' && !isClosedDay_(row.dateKey))
+    .map(row => ({ dateKey: row.dateKey, dateLabel: dateDisplayFromKey_(row.dateKey), updatedAt: formatDateTime_(row.updatedAt) }))
+    .sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+  return { ok: true, member: member.name, month: normalized, monthLabel: monthDisplay_(normalized), total: days.length, days };
 }
-
 /**
  * Trigger gọi định kỳ. Hàm tự kiểm tra thời điểm và chống gửi trùng.
  */
@@ -397,42 +433,58 @@ function sendPreviousMonthSummaryNow() {
 }
 
 function sendDailySummaryIfNeeded_(now) {
+  const dateKey = dateKey_(now);
   const props = PropertiesService.getScriptProperties();
-  const key = dateKey_(now);
-  if (props.getProperty('DAILY_SENT_' + key)) return;
-
-  sendDailySummary_(now, false);
-  props.setProperty('DAILY_SENT_' + key, new Date().toISOString());
+  if (props.getProperty('DAILY_EMAIL_' + dateKey) || props.getProperty('DAILY_SENT_' + dateKey)) return;
+  sendDailySummaryForDate_(dateKey, false);
 }
 
 function sendDailySummary_(now, manual) {
-  const dateKey = dateKey_(now);
-  const booked = getBookingsForDate_(dateKey);
-  const totalMembers = getMembers_().length;
-  const names = booked.map((b, i) => `${i + 1}. ${b.name}`).join('\n') || 'Không có người báo cơm.';
-
-  const subject = `🍚 Báo cơm ${dateDisplay_(now)}: ${booked.length} suất`;
-  const body = [
-    `BÁO CƠM TRƯA — ${dateDisplay_(now)}`,
-    '',
-    `Tổng số suất: ${booked.length}`,
-    `Số người trong danh sách: ${totalMembers}`,
-    '',
-    'Danh sách đã báo cơm:',
-    names,
-    '',
-    manual ? '(Email được gửi thủ công từ Apps Script)' : `Hệ thống tự chốt lúc ${cutoffLabel_()}.`,
-  ].join('\n');
-
-  MailApp.sendEmail({
-    to: getConfig_('ADMIN_EMAIL', APP.ADMIN_EMAIL),
-    subject,
-    body,
-    htmlBody: buildDailyEmailHtml_(now, booked, totalMembers),
-    name: 'Báo cơm trưa',
-  });
+  return sendDailySummaryForDate_(dateKey_(now), manual);
 }
 
+function sendDailySummaryForDate_(dateKey, manual) {
+  const closedDay = getClosedDay_(dateKey);
+  const booked = closedDay.closed ? [] : getBookingsForDate_(dateKey);
+  const totalMembers = getMembers_().length;
+  const snapshot = dailySnapshotHash_(dateKey, booked, closedDay.closed);
+  const props = PropertiesService.getScriptProperties();
+  const previous = readDailyEmailRecord_(dateKey);
+  const isUpdate = Boolean(previous && (!previous.hash || previous.hash !== snapshot));
+  const dateLabel = dateDisplayFromKey_(dateKey);
+  const subject = isUpdate ? `🍚 [CẬP NHẬT] Báo cơm ${dateLabel}: ${booked.length} suất` : `🍚 Báo cơm ${dateLabel}: ${booked.length} suất`;
+  const body = closedDay.closed
+    ? [`BÁO CƠM TRƯA — ${dateLabel}`, '', 'Hôm nay không tổ chức ăn trưa.', closedDay.note ? `Ghi chú: ${closedDay.note}` : '', '', manual ? '(Email được gửi thủ công từ Dashboard)' : `Hệ thống tự chốt lúc ${cutoffLabel_()}.`].join('\n')
+    : [`BÁO CƠM TRƯA — ${dateLabel}`, '', `Tổng số suất: ${booked.length}`, `Số người trong danh sách: ${totalMembers}`, '', 'Danh sách đã báo cơm:', booked.map((b, i) => `${i + 1}. ${b.name}`).join('\n') || 'Không có người báo cơm.', '', manual ? '(Email được gửi thủ công từ Dashboard)' : `Hệ thống tự chốt lúc ${cutoffLabel_()}.`].join('\n');
+  MailApp.sendEmail({ to: getConfig_('ADMIN_EMAIL', APP.ADMIN_EMAIL), subject, body, htmlBody: buildDailyEmailHtml_(dateFromKey_(dateKey), booked, totalMembers, closedDay), name: 'Báo cơm trưa' });
+  const record = { sentAt: new Date().toISOString(), hash: snapshot, total: booked.length, closed: closedDay.closed };
+  props.setProperty('DAILY_EMAIL_' + dateKey, JSON.stringify(record));
+  props.setProperty('DAILY_SENT_' + dateKey, record.sentAt);
+  return record;
+}
+
+function readDailyEmailRecord_(dateKey) {
+  const props = PropertiesService.getScriptProperties();
+  const raw = props.getProperty('DAILY_EMAIL_' + dateKey);
+  if (raw) {
+    try { return JSON.parse(raw); } catch (error) { return null; }
+  }
+  const legacy = props.getProperty('DAILY_SENT_' + dateKey);
+  return legacy ? { sentAt: legacy, hash: '', total: null } : null;
+}
+function getDailyEmailStatus_(dateKey) {
+  const record = readDailyEmailRecord_(dateKey);
+  if (!record) return { sent: false, dirty: false, sentAt: '', total: null };
+  const closedDay = getClosedDay_(dateKey);
+  const current = dailySnapshotHash_(dateKey, closedDay.closed ? [] : getBookingsForDate_(dateKey), closedDay.closed);
+  return { sent: true, dirty: record.hash !== current, sentAt: record.sentAt || '', total: record.total };
+}
+
+function dailySnapshotHash_(dateKey, booked, closed) {
+  const payload = JSON.stringify({ dateKey, closed: Boolean(closed), booked: booked.map(item => item.memberId).sort() });
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, payload, Utilities.Charset.UTF_8);
+  return Utilities.base64Encode(digest);
+}
 function sendPreviousMonthSummaryIfNeeded_(now) {
   const monthKey = previousMonthKey_(now);
   const props = PropertiesService.getScriptProperties();
@@ -443,50 +495,23 @@ function sendPreviousMonthSummaryIfNeeded_(now) {
 }
 
 function sendMonthlySummary_(monthKey, manual) {
+  const normalizedMonth = normalizeMonthKey_(monthKey);
   const members = getMembers_(true);
   const counts = {};
-  members.forEach(m => counts[m.id] = 0);
-
-  const sh = getSheet_(APP.SHEETS.BOOKINGS);
-  const lastRow = sh.getLastRow();
-
-  if (lastRow >= 2) {
-    sh.getRange(2, 1, lastRow - 1, 5).getValues().forEach(row => {
-      const date = normalizeDateCell_(row[0]);
-      const id = String(row[1] || '');
-      const status = String(row[3] || '');
-      if (date.startsWith(monthKey + '-') && status === 'BOOKED') {
-        counts[id] = (counts[id] || 0) + 1;
-      }
-    });
-  }
-
-  const rows = members
-    .map(m => ({ name: m.name, total: counts[m.id] || 0 }))
-    .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'vi'));
-
-  const grandTotal = rows.reduce((s, r) => s + r.total, 0);
-  const textRows = rows.map((r, i) => `${i + 1}. ${r.name}: ${r.total} suất`).join('\n');
-
-  const subject = `📊 Tổng hợp suất ăn ${monthDisplay_(monthKey)} — ${grandTotal} suất`;
-  const body = [
-    `TỔNG HỢP SUẤT ĂN ${monthDisplay_(monthKey)}`,
-    '',
-    textRows || 'Chưa có dữ liệu.',
-    '',
-    `TỔNG CỘNG: ${grandTotal} suất`,
-    manual ? '\n(Email được gửi thủ công từ Apps Script)' : '',
-  ].join('\n');
-
-  MailApp.sendEmail({
-    to: getConfig_('ADMIN_EMAIL', APP.ADMIN_EMAIL),
-    subject,
-    body,
-    htmlBody: buildMonthlyEmailHtml_(monthKey, rows, grandTotal),
-    name: 'Báo cơm trưa',
+  members.forEach(member => { counts[member.id] = 0; });
+  const states = getFinalBookingStateMap_(normalizedMonth);
+  const closedDays = getClosedDayMap_(normalizedMonth);
+  Object.keys(states).forEach(key => {
+    const state = states[key];
+    if (state.status === 'BOOKED' && !closedDays[state.dateKey] && state.memberId in counts) counts[state.memberId]++;
   });
+  const rows = members.map(member => ({ name: member.name, total: counts[member.id] || 0 })).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'vi'));
+  const grandTotal = rows.reduce((sum, row) => sum + row.total, 0);
+  const textRows = rows.map((row, i) => `${i + 1}. ${row.name}: ${row.total} suất`).join('\n');
+  const subject = `📊 Tổng hợp suất ăn ${monthDisplay_(normalizedMonth)} — ${grandTotal} suất`;
+  const body = [`TỔNG HỢP SUẤT ĂN ${monthDisplay_(normalizedMonth)}`, '', textRows || 'Chưa có dữ liệu.', '', `TỔNG CỘNG: ${grandTotal} suất`, manual ? '\n(Email được gửi thủ công từ Apps Script)' : ''].join('\n');
+  MailApp.sendEmail({ to: getConfig_('ADMIN_EMAIL', APP.ADMIN_EMAIL), subject, body, htmlBody: buildMonthlyEmailHtml_(normalizedMonth, rows, grandTotal), name: 'Báo cơm trưa' });
 }
-
 /* =========================
    Helpers
 ========================= */
@@ -515,43 +540,23 @@ function getMemberById_(memberId) {
 }
 
 function getBookingsForDate_(dateKey) {
-  const sh = getSheet_(APP.SHEETS.BOOKINGS);
-  const lastRow = sh.getLastRow();
-  if (lastRow < 2) return [];
-
-  const rows = sh.getRange(2, 1, lastRow - 1, 5).getValues();
-  return rows
-    .map((r, idx) => ({
-      rowNumber: idx + 2,
-      dateKey: normalizeDateCell_(r[0]),
-      memberId: String(r[1] || ''),
-      name: String(r[2] || ''),
-      status: String(r[3] || ''),
-      updatedAt: r[4],
-      updatedAtDisplay: formatTime_(r[4]),
-    }))
-    .filter(r => r.dateKey === dateKey && r.status === 'BOOKED')
-    .sort((a, b) => {
-      const ta = a.updatedAt instanceof Date ? a.updatedAt.getTime() : 0;
-      const tb = b.updatedAt instanceof Date ? b.updatedAt.getTime() : 0;
-      return ta - tb;
-    });
+  if (isClosedDay_(dateKey)) return [];
+  const states = getFinalBookingStateForDate_(dateKey);
+  return Object.keys(states).map(memberId => states[memberId])
+    .filter(row => row.status === 'BOOKED')
+    .map(row => ({ rowNumber: row.rowNumber, dateKey: row.dateKey, memberId: row.memberId, name: row.name, status: row.status, updatedAt: row.updatedAt, updatedAtDisplay: formatTime_(row.updatedAt) }))
+    .sort((a, b) => (a.updatedAt instanceof Date ? a.updatedAt.getTime() : 0) - (b.updatedAt instanceof Date ? b.updatedAt.getTime() : 0));
 }
 
 function findBookingRow_(sh, dateKey, memberId) {
   const lastRow = sh.getLastRow();
   if (lastRow < 2) return { rowNumber: null };
-
   const values = sh.getRange(2, 1, lastRow - 1, 5).getValues();
+  let latest = null;
   for (let i = 0; i < values.length; i++) {
-    if (
-      normalizeDateCell_(values[i][0]) === dateKey &&
-      String(values[i][1] || '') === String(memberId)
-    ) {
-      return { rowNumber: i + 2, values: values[i] };
-    }
+    if (normalizeDateCell_(values[i][0]) === dateKey && String(values[i][1] || '') === String(memberId)) latest = { rowNumber: i + 2, values: values[i] };
   }
-  return { rowNumber: null };
+  return latest || { rowNumber: null };
 }
 
 /**
@@ -562,6 +567,7 @@ function autoBookWeekdayIfNeeded_(now) {
   if (isWeekend_(now) || isLocked_(now)) return;
 
   const dateKey = dateKey_(now);
+  if (isClosedDay_(dateKey)) return;
   const props = PropertiesService.getScriptProperties();
   const propertyKey = 'AUTO_BOOKED_' + dateKey;
   if (props.getProperty(propertyKey)) return;
@@ -589,9 +595,7 @@ function autoBookWeekdayIfNeeded_(now) {
 
     if (rowsToAdd.length) {
       bookings.getRange(bookings.getLastRow() + 1, 1, rowsToAdd.length, 5).setValues(rowsToAdd);
-      getSheet_(APP.SHEETS.AUDIT).getRange(
-        getSheet_(APP.SHEETS.AUDIT).getLastRow() + 1, 1, rowsToAdd.length, 5
-      ).setValues(rowsToAdd.map(row => [now, dateKey, row[1], row[2], 'BOOK_AUTO']));
+      rowsToAdd.forEach(row => appendAudit_(dateKey, { id: row[1], name: row[2] }, 'BOOK_AUTO', 'AUTO', '', now));
     }
 
     // Đánh dấu cả khi chưa có ai bật tự động để không chạy lại nhiều lần trong ngày.
@@ -636,7 +640,7 @@ function seedConfig_(ss) {
 
   const defaults = [
     ['ADMIN_EMAIL', APP.ADMIN_EMAIL],
-    ['CUTOFF', '08:00'],
+    ['CUTOFF', APP.DEFAULT_CUTOFF],
     ['APP_NAME', 'Báo cơm trưa'],
   ];
 
@@ -726,7 +730,7 @@ function cutoffLabel_() {
 }
 
 function getCutoff_() {
-  const fallback = `${String(APP.CUTOFF_HOUR).padStart(2, '0')}:${String(APP.CUTOFF_MINUTE).padStart(2, '0')}`;
+  const fallback = APP.DEFAULT_CUTOFF;
   let raw = fallback;
 
   try {
@@ -828,28 +832,13 @@ function memberDisplayOrder_(a, b) {
   return a.name.localeCompare(b.name, 'vi');
 }
 
-function buildDailyEmailHtml_(now, booked, totalMembers) {
-  const rows = booked.length
-    ? booked.map((b, i) => `
-      <tr>
-        <td style="padding:8px;border-bottom:1px solid #eee">${i + 1}</td>
-        <td style="padding:8px;border-bottom:1px solid #eee">${escapeHtmlServer_(b.name)}</td>
-        <td style="padding:8px;border-bottom:1px solid #eee">${escapeHtmlServer_(b.updatedAtDisplay)}</td>
-      </tr>`).join('')
-    : `<tr><td colspan="3" style="padding:12px">Không có người báo cơm.</td></tr>`;
-
-  return `
-  <div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#111827">
-    <h2 style="margin-bottom:6px">🍚 Báo cơm trưa — ${dateDisplay_(now)}</h2>
-    <div style="font-size:30px;font-weight:700;margin:14px 0">${booked.length} suất</div>
-    <div style="color:#6B7280;margin-bottom:14px">Danh sách: ${booked.length}/${totalMembers} người</div>
-    <table style="width:100%;border-collapse:collapse">
-      <thead><tr><th align="left">#</th><th align="left">Họ tên</th><th align="left">Báo lúc</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-  </div>`;
+function buildDailyEmailHtml_(now, booked, totalMembers, closedDay) {
+  if (closedDay && closedDay.closed) {
+    return `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#111827"><h2>🍚 Báo cơm trưa — ${dateDisplay_(now)}</h2><div style="padding:16px;background:#fef3c7;border-radius:10px;font-weight:700">Hôm nay không tổ chức ăn trưa.</div>${closedDay.note ? `<p>Ghi chú: ${escapeHtmlServer_(closedDay.note)}</p>` : ''}</div>`;
+  }
+  const rows = booked.length ? booked.map((booking, index) => `<tr><td style="padding:8px;border-bottom:1px solid #eee">${index + 1}</td><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtmlServer_(booking.name)}</td><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtmlServer_(booking.updatedAtDisplay)}</td></tr>`).join('') : `<tr><td colspan="3" style="padding:12px">Không có người báo cơm.</td></tr>`;
+  return `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#111827"><h2 style="margin-bottom:6px">🍚 Báo cơm trưa — ${dateDisplay_(now)}</h2><div style="font-size:30px;font-weight:700;margin:14px 0">${booked.length} suất</div><div style="color:#6B7280;margin-bottom:14px">Danh sách: ${booked.length}/${totalMembers} người</div><table style="width:100%;border-collapse:collapse"><thead><tr><th align="left">#</th><th align="left">Họ tên</th><th align="left">Báo lúc</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
-
 function buildMonthlyEmailHtml_(monthKey, rows, grandTotal) {
   const htmlRows = rows.map((r, i) => `
     <tr>
