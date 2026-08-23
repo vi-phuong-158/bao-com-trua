@@ -1,6 +1,7 @@
 const APP = {
   TZ: 'Asia/Ho_Chi_Minh',
   ADMIN_EMAIL: 'vingocphuong.92@gmail.com',
+  ADMIN_EMAILS: ['vingocphuong.92@gmail.com', 'anmphongandn@gmail.com'],
   CUTOFF_HOUR: 8,
   CUTOFF_MINUTE: 0,
   DEFAULT_CUTOFF: '08:00',
@@ -640,6 +641,7 @@ function seedConfig_(ss) {
 
   const defaults = [
     ['ADMIN_EMAIL', APP.ADMIN_EMAIL],
+    ['ADMIN_EMAILS', APP.ADMIN_EMAILS.join(', ')],
     ['CUTOFF', APP.DEFAULT_CUTOFF],
     ['APP_NAME', 'Báo cơm trưa'],
   ];

@@ -215,14 +215,24 @@ function adminSendMonthlyEmail(monthKey) {
 
 function assertAdmin_() {
   const activeEmail = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
-  const adminEmail = getAdminEmail_().toLowerCase();
-  if (!activeEmail || activeEmail !== adminEmail) {
-    throw new Error(`Không có quyền quản trị. Hãy mở Google Sheet bằng tài khoản ${adminEmail}.`);
+  const adminEmails = getAdminEmails_();
+  if (!activeEmail || !adminEmails.includes(activeEmail)) {
+    throw new Error('Không có quyền quản trị. Tài khoản được phép: ' + adminEmails.join(', ') + '.');
   }
 }
 
 function getAdminEmail_() {
   return String(getConfig_('ADMIN_EMAIL', APP.ADMIN_EMAIL) || APP.ADMIN_EMAIL).trim();
+}
+
+function getAdminEmails_() {
+  const configured = getConfig_('ADMIN_EMAILS', APP.ADMIN_EMAILS.join(','));
+  const legacy = getAdminEmail_();
+  const raw = String(configured) + ',' + String(legacy);
+  return [...new Set(raw
+    .split(/[;,\n]+/)
+    .map(email => String(email || '').trim().toLowerCase())
+    .filter(Boolean))];
 }
 
 function adminFindMember_(memberId) {

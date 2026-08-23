@@ -7,7 +7,7 @@ Admin Dashboard chạy trong Google Sheet dưới dạng Apps Script dialog. Web
 1. Chạy `setupApp()` một lần để tạo/migrate các sheet.
 2. Reload Google Sheet.
 3. Chọn menu **🍚 Quản trị cơm trưa → Mở Admin Dashboard**.
-4. Mở bằng tài khoản `vingocphuong.92@gmail.com`.
+4. Mở bằng tài khoản `vingocphuong.92@gmail.com` hoặc `anmphongandn@gmail.com`.
 
 Mọi hàm `admin*` đều kiểm tra `Session.getActiveUser().getEmail()` ở server-side. Không có API admin mở cho Web App anonymous.
 
@@ -29,7 +29,7 @@ Mọi hàm `admin*` đều kiểm tra `Session.getActiveUser().getEmail()` ở s
 - `THANH_VIEN`: ID, HO_TEN, DANG_HOAT_DONG, TU_DONG_BAO_COM
 - `CHAM_COM`: trạng thái cuối hiện tại theo ngày/người
 - `NHAT_KY`: thêm NGUON và GHI_CHU, không xóa audit cũ
-- `CAU_HINH`: ADMIN_EMAIL, CUTOFF, APP_NAME
+- `CAU_HINH`: ADMIN_EMAIL, ADMIN_EMAILS, CUTOFF, APP_NAME
 - `NGAY_NGHI`: ngày, trạng thái, ghi chú, người cập nhật, thời gian
 
 ## Deploy

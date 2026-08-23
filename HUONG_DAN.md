@@ -16,6 +16,10 @@ Bản này dành cho nhóm khoảng 30 người, **không cần đăng nhập**.
   - Chọn tháng.
   - Xem tổng số suất và từng ngày đã ăn.
 - Khóa thay đổi từ **08:00**.
+- Tài khoản Admin:
+  - `vingocphuong.92@gmail.com`
+  - `anmphongandn@gmail.com`
+
 - Tự động gửi email chốt ngày về:
   - `vingocphuong.92@gmail.com`
 - Ngày 1 hằng tháng tự gửi tổng hợp tháng trước.
@@ -227,6 +231,7 @@ Sheet `CAU_HINH` có:
 | KEY | VALUE |
 |---|---|
 | ADMIN_EMAIL | vingocphuong.92@gmail.com |
+| ADMIN_EMAILS | vingocphuong.92@gmail.com, anmphongandn@gmail.com |
 | CUTOFF | 08:00 |
 | APP_NAME | Báo cơm trưa |
 
@@ -244,7 +249,7 @@ Nhật ký `NHAT_KY` vẫn lưu mọi lần báo/hủy để có thể đối ch
 
 ## 11. Admin Dashboard và ngày nghỉ
 
-Admin Dashboard chạy trong Google Sheet, không đưa quyền quản trị vào Web App public. Sau `clasp push` và reload Sheet, mở menu **🍚 Quản trị cơm trưa → Mở Admin Dashboard** bằng tài khoản `vingocphuong.92@gmail.com`.
+Admin Dashboard chạy trong Google Sheet, không đưa quyền quản trị vào Web App public. Sau `clasp push` và reload Sheet, mở menu **🍚 Quản trị cơm trưa → Mở Admin Dashboard** bằng tài khoản `vingocphuong.92@gmail.com` hoặc `anmphongandn@gmail.com`.
 
 Chạy `setupApp()` một lần khi áp dụng schema mới. Hàm tạo `NGAY_NGHI` và mở rộng `NHAT_KY` mà không xóa lịch sử cũ. Khi Admin khóa ngày nghỉ, Web App, auto-book và email đều hiển thị “không tổ chức ăn trưa”.
 
