@@ -37,7 +37,7 @@
       <h1>🍚 Admin Dashboard</h1>
       <div class="sub" id="adminInfo">Đang tải quyền quản trị...</div>
     </div>
-    <button class="close" onclick="google.script.host.close()">Đóng</button>
+    <? if (!isWebApp) { ?><button class="close" onclick="google.script.host.close()">Đóng</button><? } ?>
   </div>
 
   <div class="toolbar">
