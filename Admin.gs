@@ -33,7 +33,7 @@ function onOpen() {
 
 function showAdminDashboard() {
   assertAdmin_();
-  const html = HtmlService.createTemplateFromFile('Admin')
+  const html = HtmlService.createTemplateFromFile('AdminDashboard')
     .evaluate()
     .setTitle(ADMIN_DASHBOARD.TITLE)
     .setWidth(1240)

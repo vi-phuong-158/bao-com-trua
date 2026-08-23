@@ -42,7 +42,7 @@ clasp push
 
 Sau đó deploy lại Web App nếu đã thay đổi `Code.gs`/`Index.html`. Admin Dashboard không cần deploy riêng; mở từ Google Sheet sau khi reload.
 
-Nếu dùng Apps Script UI, tạo/cập nhật 5 file: `Code.gs`, `Index.html`, `Admin.gs`, `Admin.html`, `appsscript.json`, rồi chạy `setupApp()`.
+Nếu dùng Apps Script UI, tạo/cập nhật 5 file: `Code.gs`, `Index.html`, `Admin.gs`, `AdminDashboard.html`, `appsscript.json`, rồi chạy `setupApp()`.
 
 ## Kiểm tra nhanh
 
