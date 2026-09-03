@@ -76,7 +76,7 @@ const APP = {
     CONFIG: ['KEY', 'VALUE'],
     CLOSED_DAYS: ['NGAY', 'TRANG_THAI', 'GHI_CHU', 'CAP_NHAT_BOI', 'CAP_NHAT_LUC'],
     RECONCILIATION: ['NGAY', 'TRANG_THAI', 'DOI_SOAT_BOI', 'DOI_SOAT_LUC', 'GHI_CHU', 'SNAPSHOT_HASH'],
-    DAILY_SETTLEMENT: ['NGAY', 'LUNCH_ACTUAL', 'DINNER_NOTE_COUNT', 'DINNER_NOTE', 'SOURCE', 'TRANG_THAI', 'GHI_CHU', 'CAP_NHAT_BOI', 'CAP_NHAT_LUC'],
+    DAILY_SETTLEMENT: ['NGAY', 'LUNCH_ACTUAL', 'DINNER_NOTE_COUNT', 'DINNER_NOTE', 'SOURCE', 'TRANG_THAI', 'GHI_CHU', 'CAP_NHAT_BOI', 'CAP_NHAT_LUC', 'ATTRIBUTED_LUNCH_COUNT', 'UNATTRIBUTED_LUNCH_COUNT'],
     MONTHLY_SETTLEMENT: ['THANG', 'TRANG_THAI', 'TONG_PHAN_MEM', 'TONG_QUYET_TOAN', 'CHENH_LECH', 'GHI_CHU_TOI', 'KHOA_LUC', 'KHOA_BOI', 'GHI_CHU'],
   },
   SETTLEMENT_STATES: {
@@ -458,7 +458,8 @@ function getDailySettlement_(dateKey) {
     const lastRow = sh.getLastRow();
     if (lastRow < 2) return null;
 
-    const values = sh.getRange(2, 1, lastRow - 1, 9).getValues();
+    const numCols = Math.max(11, sh.getLastColumn());
+    const values = sh.getRange(2, 1, lastRow - 1, numCols).getValues();
     let hit = null;
     for (let i = 0; i < values.length; i++) {
       const row = values[i];
@@ -475,6 +476,8 @@ function getDailySettlement_(dateKey) {
           note: String(row[6] || '').trim(),
           updatedBy: String(row[7] || '').trim(),
           updatedAt: row[8],
+          attributedLunchCount: (row[9] !== '' && row[9] !== null && row[9] !== undefined && !isNaN(row[9])) ? Number(row[9]) : null,
+          unattributedLunchCount: (row[10] !== '' && row[10] !== null && row[10] !== undefined && !isNaN(row[10])) ? Number(row[10]) : null,
         };
       }
     }
@@ -494,7 +497,8 @@ function getMonthlySettlementMap_(monthKey) {
     const lastRow = sh.getLastRow();
     if (lastRow < 2) return map;
 
-    const values = sh.getRange(2, 1, lastRow - 1, 9).getValues();
+    const numCols = Math.max(11, sh.getLastColumn());
+    const values = sh.getRange(2, 1, lastRow - 1, numCols).getValues();
     for (let i = 0; i < values.length; i++) {
       const row = values[i];
       const rDate = normalizeDateCell_(row[0]);
@@ -510,6 +514,8 @@ function getMonthlySettlementMap_(monthKey) {
           note: String(row[6] || '').trim(),
           updatedBy: String(row[7] || '').trim(),
           updatedAt: row[8],
+          attributedLunchCount: (row[9] !== '' && row[9] !== null && row[9] !== undefined && !isNaN(row[9])) ? Number(row[9]) : null,
+          unattributedLunchCount: (row[10] !== '' && row[10] !== null && row[10] !== undefined && !isNaN(row[10])) ? Number(row[10]) : null,
         };
       }
     }
@@ -542,10 +548,17 @@ function upsertDailySettlement_(dateKey, data, userEmail) {
     const note = data.note !== undefined ? String(data.note).trim() : (existing ? existing.note : '');
     const updatedBy = userEmail || String(Session.getActiveUser().getEmail() || 'ADMIN');
 
-    const row = [dateKey, lunchActual, dinnerNoteCount, dinnerNote, source, status, note, updatedBy, now];
+    const attributedLunchCount = (data.attributedLunchCount !== undefined && data.attributedLunchCount !== null && data.attributedLunchCount !== '' && !isNaN(data.attributedLunchCount))
+      ? Number(data.attributedLunchCount)
+      : (existing && existing.attributedLunchCount !== null ? existing.attributedLunchCount : '');
+    const unattributedLunchCount = (data.unattributedLunchCount !== undefined && data.unattributedLunchCount !== null && data.unattributedLunchCount !== '' && !isNaN(data.unattributedLunchCount))
+      ? Number(data.unattributedLunchCount)
+      : (existing && existing.unattributedLunchCount !== null ? existing.unattributedLunchCount : '');
+
+    const row = [dateKey, lunchActual, dinnerNoteCount, dinnerNote, source, status, note, updatedBy, now, attributedLunchCount, unattributedLunchCount];
 
     if (existing && existing.rowNumber) {
-      sh.getRange(existing.rowNumber, 1, 1, 9).setValues([row]);
+      sh.getRange(existing.rowNumber, 1, 1, 11).setValues([row]);
     } else {
       sh.appendRow(row);
     }
@@ -780,6 +793,132 @@ function seedAugust2026ActualSettlement() {
     dinnerNoteCount: totalDinner,
     daysReconciled: AUGUST_2026_ACTUAL_LUNCH.length,
   };
+}
+
+/**
+ * Khôi phục danh sách người ăn trưa cấp thành viên cho 3 ngày tháng 8/2026 có bằng chứng Zalo
+ * (22/08/2026, 23/08/2026, 31/08/2026) mà không bịa người và không thay đổi tổng số quyết toán.
+ */
+function reconcilePersonLevelAugustDates_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('Không tìm thấy Spreadsheet.');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const shBookings = getSheet_(APP.SHEETS.BOOKINGS);
+    const now = new Date();
+
+    const CONFIRMED_MEMBERS = {
+      HIEP: { id: '2a4c7a46', name: 'Nguyễn Hoàng Hiệp' },
+      HUNG: { id: 'df3ff56c', name: 'Phạm Việt Hùng' },
+      THINH: { id: '4791e1e0', name: 'Nguyễn Toàn Thịnh' },
+      CONG: { id: 'e25e94de', name: 'Nguyễn Văn Công' },
+      NAM: { id: '193ddfb8', name: 'Bùi Hiếu Nam' },
+    };
+
+    // 1. 2026-08-23 (Chủ nhật): Bằng chứng Zalo "trưa được Phạm Hùng, Thịnh" -> LUNCH_ACTUAL = 2
+    const date23 = '2026-08-23';
+    const target23 = [CONFIRMED_MEMBERS.HUNG, CONFIRMED_MEMBERS.THINH];
+    const states23 = getFinalBookingStateMap_('2026-08');
+    target23.forEach(m => {
+      const cur = states23[`${date23}|${m.id}|${APP.MEAL_TYPES.LUNCH}`];
+      if (!cur || cur.status !== APP.MEAL_STATES.BOOKED) {
+        shBookings.appendRow([date23, m.id, m.name, APP.MEAL_TYPES.LUNCH, APP.MEAL_STATES.BOOKED, now]);
+        appendAudit_(date23, m, APP.MEAL_TYPES.LUNCH, 'OWNER_ZALO_RECONCILIATION', 'ADMIN', 'Khôi phục theo Zalo ngày 23/08/2026.', now);
+      }
+    });
+    upsertDailySettlement_(date23, {
+      lunchActual: 2,
+      dinnerNoteCount: 2,
+      dinnerNote: 'Zalo: trưa Phạm Hùng, Thịnh; chiều Phạm Hùng, Thịnh. Lunch quyết toán = 2.',
+      source: 'OWNER_NOTEBOOK_ZALO',
+      status: APP.SETTLEMENT_STATES.RECONCILED,
+      note: 'Khôi phục theo Zalo ngày 23/08/2026.',
+      attributedLunchCount: 2,
+      unattributedLunchCount: 0,
+    });
+
+    // 2. 2026-08-22 (Thứ bảy): Bằng chứng Zalo "Hiệp, Hùng, Thịnh, Công, Nam" -> LUNCH_ACTUAL = 6
+    const date22 = '2026-08-22';
+    const target22 = [
+      CONFIRMED_MEMBERS.HIEP,
+      CONFIRMED_MEMBERS.HUNG,
+      CONFIRMED_MEMBERS.THINH,
+      CONFIRMED_MEMBERS.CONG,
+      CONFIRMED_MEMBERS.NAM,
+    ];
+    const states22 = getFinalBookingStateMap_('2026-08');
+    target22.forEach(m => {
+      const cur = states22[`${date22}|${m.id}|${APP.MEAL_TYPES.LUNCH}`];
+      if (!cur || cur.status !== APP.MEAL_STATES.BOOKED) {
+        shBookings.appendRow([date22, m.id, m.name, APP.MEAL_TYPES.LUNCH, APP.MEAL_STATES.BOOKED, now]);
+        appendAudit_(date22, m, APP.MEAL_TYPES.LUNCH, 'OWNER_ZALO_RECONCILIATION', 'ADMIN', 'Khôi phục theo Zalo ngày 22/08/2026 (5 người xác nhận).', now);
+      }
+    });
+    upsertDailySettlement_(date22, {
+      lunchActual: 6,
+      dinnerNoteCount: 0,
+      dinnerNote: '',
+      source: 'OWNER_NOTEBOOK_ZALO',
+      status: APP.SETTLEMENT_STATES.RECONCILED,
+      note: 'Khôi phục theo Zalo ngày 22/08/2026 (xác nhận 5 người: Hiệp, Hùng, Thịnh, Công, Nam; 1 suất chưa xác định người).',
+      attributedLunchCount: 5,
+      unattributedLunchCount: 1,
+    });
+
+    // 3. 2026-08-31 (Thứ hai): Bằng chứng Zalo "Trưa 31/8: Hiệp - Thành - Công - Nam" -> LUNCH_ACTUAL = 4
+    const date31 = '2026-08-31';
+    const proven31Ids = new Set([
+      CONFIRMED_MEMBERS.HIEP.id,
+      CONFIRMED_MEMBERS.CONG.id,
+      CONFIRMED_MEMBERS.NAM.id,
+    ]);
+    const states31 = getFinalBookingStateMap_('2026-08');
+
+    // Ensure proven 3 are BOOKED
+    [CONFIRMED_MEMBERS.HIEP, CONFIRMED_MEMBERS.CONG, CONFIRMED_MEMBERS.NAM].forEach(m => {
+      const cur = states31[`${date31}|${m.id}|${APP.MEAL_TYPES.LUNCH}`];
+      if (!cur || cur.status !== APP.MEAL_STATES.BOOKED) {
+        shBookings.appendRow([date31, m.id, m.name, APP.MEAL_TYPES.LUNCH, APP.MEAL_STATES.BOOKED, now]);
+        appendAudit_(date31, m, APP.MEAL_TYPES.LUNCH, 'OWNER_ZALO_RECONCILIATION', 'ADMIN', 'Khôi phục theo Zalo ngày 31/08/2026.', now);
+      }
+    });
+
+    // For any other member currently BOOKED for Lunch on 31/08 due to legacy auto-book, cancel them audit-safely
+    const allMembers = getMembers_(true);
+    allMembers.forEach(m => {
+      if (!proven31Ids.has(m.id)) {
+        const cur = states31[`${date31}|${m.id}|${APP.MEAL_TYPES.LUNCH}`];
+        if (cur && cur.status === APP.MEAL_STATES.BOOKED) {
+          shBookings.appendRow([date31, m.id, m.name, APP.MEAL_TYPES.LUNCH, APP.MEAL_STATES.CANCELLED, now]);
+          appendAudit_(date31, m, APP.MEAL_TYPES.LUNCH, 'OWNER_ZALO_RECONCILIATION', 'ADMIN', 'Điều chỉnh theo Zalo ngày 31/08/2026 (chỉ xác nhận Hiệp, Công, Nam; không xác định Thành cụ thể).', now);
+        }
+      }
+    });
+
+    upsertDailySettlement_(date31, {
+      lunchActual: 4,
+      dinnerNoteCount: 4,
+      dinnerNote: 'Zalo: Trưa Hiệp, Thành, Cường, Nam; chiều Hiệp, Thành, Nam, Thịnh. Lunch quyết toán = 4.',
+      source: 'OWNER_NOTEBOOK_ZALO',
+      status: APP.SETTLEMENT_STATES.RECONCILED,
+      note: 'Khôi phục theo Zalo ngày 31/08/2026 (xác nhận Hiệp, Công, Nam; Thành chưa xác định cụ thể; 1 suất chưa xác định người).',
+      attributedLunchCount: 3,
+      unattributedLunchCount: 1,
+    });
+
+    return {
+      ok: true,
+      restored: {
+        '2026-08-22': { actual: 6, attributed: 5, unattributed: 1 },
+        '2026-08-23': { actual: 2, attributed: 2, unattributed: 0 },
+        '2026-08-31': { actual: 4, attributed: 3, unattributed: 1 },
+      },
+    };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function bookToday(memberId) {
@@ -1087,6 +1226,10 @@ function getMonthlyHistory(memberId, monthKey) {
   const lunchCount = days.filter(d => d.mealType === APP.MEAL_TYPES.LUNCH).length;
   const dinnerCount = days.filter(d => d.mealType === APP.MEAL_TYPES.DINNER).length;
 
+  const reconciliationNotice = (normalized === '2026-08')
+    ? 'Tháng 8/2026 được đối soát từ sổ thực tế. Một số suất lịch sử chưa xác định được người cụ thể.'
+    : '';
+
   return {
     ok: true,
     member: member.name,
@@ -1097,6 +1240,7 @@ function getMonthlyHistory(memberId, monthKey) {
     total: lunchCount, // Cơm trưa là phần duy nhất dùng để quyết toán
     isLocked,
     monthStatus: monthStatus.status || APP.MONTH_STATES.OPEN,
+    reconciliationNotice,
     days,
   };
 }

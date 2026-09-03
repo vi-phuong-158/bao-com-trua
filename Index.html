@@ -928,10 +928,15 @@
         const lunchCount = data.lunchCount || 0;
         const dinnerCount = data.dinnerCount || 0;
         const total = data.total || lunchCount;
-        const dinnerNote = dinnerCount > 0 ? ` · <span style="color:#92400e;">(Tối: <strong>${dinnerCount}</strong> tham khảo)</span>` : '';
+        const noticeBanner = data.reconciliationNotice
+          ? `<div style="background:#fffbeb;color:#92400e;padding:10px 14px;border-radius:10px;font-size:12px;margin-bottom:12px;border:1px solid #fde68a;">
+              ℹ️ <strong>Đối soát tháng 8/2026:</strong> ${escapeHtml(data.reconciliationNotice)}
+             </div>`
+          : '';
 
         document.getElementById('historyResult').innerHTML = `
           ${lockBanner}
+          ${noticeBanner}
           <div class="history-summary" style="padding:14px;background:#f9fafb;border-radius:12px;margin:12px 0;display:flex;justify-content:space-between;align-items:center;">
             <div>
               <div class="history-summary-label" style="font-weight:800;font-size:16px;">${escapeHtml(data.member)}</div>

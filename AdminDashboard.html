@@ -202,11 +202,16 @@
           <span style="font-size:14px;color:#4b5563;">Thực tế / Quyết toán: <strong id="settleActual" style="font-size:22px;color:#166534;">0</strong> suất</span>
           <span style="font-size:14px;color:#4b5563;">Chênh lệch: <strong id="settleDiff" style="font-size:18px;color:#2563eb;">0</strong></span>
           <span id="settleBadge" class="status-badge"></span>
+          <span id="settleAttributedSection" style="font-size:13px;display:none;">
+            · Đã xác định người: <strong id="settleAttributed" style="color:#166534;">0</strong> · Chưa xác định: <strong id="settleUnattributed" style="color:#dc2626;">0</strong>
+          </span>
+          <span id="unattributedBadge" class="status-badge danger" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;display:none;"></span>
         </div>
         <div id="settleNoteRow" style="font-size:12px;color:#4b5563;margin-top:4px;"></div>
         <div id="settleDinnerNoteRow" style="font-size:12px;color:#92400e;margin-top:2px;"></div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <button id="assignUnattributedBtn" class="btn amber" onclick="assignUnattributedPrompt()" style="display:none;">➕ Gán suất chưa xác định</button>
         <button class="btn green" onclick="editDailySettlementPrompt()">✏️ Sửa số thực tế</button>
         <button id="settleReconcileBtn" class="btn primary" onclick="markDailyReconciled()">✅ Đánh dấu đã đối soát</button>
         <button id="settleReopenBtn" class="btn ghost" onclick="reopenDailySettlement()" hidden>↩ Mở lại đối soát</button>
@@ -372,6 +377,31 @@
       : '';
     document.getElementById('settleDinnerNoteRow').textContent = dinnerNoteText;
 
+    const attrSec = document.getElementById('settleAttributedSection');
+    const unattrBadge = document.getElementById('unattributedBadge');
+    const assignBtn = document.getElementById('assignUnattributedBtn');
+
+    if (s.attributedLunchCount !== null || s.unattributedLunchCount !== null) {
+      const attrCount = s.attributedLunchCount ?? 0;
+      const unattrCount = s.unattributedLunchCount ?? 0;
+      attrSec.style.display = 'inline';
+      document.getElementById('settleAttributed').textContent = attrCount;
+      document.getElementById('settleUnattributed').textContent = unattrCount;
+
+      if (unattrCount > 0) {
+        unattrBadge.style.display = 'inline';
+        unattrBadge.textContent = `⚠️ Còn ${unattrCount} suất chưa xác định người`;
+        assignBtn.style.display = 'inline-block';
+      } else {
+        unattrBadge.style.display = 'none';
+        assignBtn.style.display = 'none';
+      }
+    } else {
+      attrSec.style.display = 'none';
+      unattrBadge.style.display = 'none';
+      assignBtn.style.display = 'none';
+    }
+
     const wkBtn = document.getElementById('weekendServiceBtn');
     if (s.isWeekend) {
       wkBtn.hidden = false;
@@ -384,6 +414,35 @@
       }
     } else {
       wkBtn.hidden = true;
+    }
+  }
+
+  function assignUnattributedPrompt() {
+    const s = state.dailySettlement || {};
+    if (!s.unattributedLunchCount || s.unattributedLunchCount <= 0) {
+      return toast('Không còn suất chưa xác định người.');
+    }
+    const memberName = prompt(`Nhập tên hoặc ID thành viên cần gán suất cơm trưa ngày ${dateValue()}:`);
+    if (!memberName) return;
+    const q = normalize(memberName.trim());
+    const matched = state.rows.filter(r => normalize(r.name).includes(q) || normalize(r.memberId).includes(q));
+    if (matched.length === 0) return toast('Không tìm thấy thành viên phù hợp.', true);
+
+    const executeAssign = (id, name) => {
+      if (!confirm(`Gán 1 suất trưa chưa xác định ngày ${dateValue()} cho: ${name}?`)) return;
+      setLoading(true);
+      server().adminAssignUnattributedLunch(dateValue(), id, monthValue());
+    };
+
+    if (matched.length > 1) {
+      const list = matched.map(m => `${m.memberId}: ${m.name}`).join('\n');
+      const chosenId = prompt(`Tìm thấy nhiều thành viên. Nhập chính xác ID:\n${list}`);
+      if (!chosenId) return;
+      const target = matched.find(m => m.memberId.toLowerCase() === chosenId.trim().toLowerCase());
+      if (!target) return toast('ID không khớp.', true);
+      executeAssign(target.memberId, target.name);
+    } else {
+      executeAssign(matched[0].memberId, matched[0].name);
     }
   }
 

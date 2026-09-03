@@ -171,6 +171,8 @@ function adminGetDashboardData(dateKey, monthKey) {
       status: settlementStatus,
       source: settlementSource,
       note: settlementNote,
+      attributedLunchCount: (dailySettlement && dailySettlement.attributedLunchCount !== null) ? dailySettlement.attributedLunchCount : null,
+      unattributedLunchCount: (dailySettlement && dailySettlement.unattributedLunchCount !== null) ? dailySettlement.unattributedLunchCount : null,
       isWeekend: isWeekendDay,
       isWeekendService,
     },
@@ -543,4 +545,46 @@ function adminToggleWeekendServiceDay(dateKey, enabled, monthKey) {
 
   appendAudit_(selectedDate, { id: 'ADMIN', name: 'Admin' }, APP.MEAL_TYPES.LUNCH, enabled ? 'ENABLE_WEEKEND_SERVICE' : 'DISABLE_WEEKEND_SERVICE', 'ADMIN', `Tổ chức ăn trưa cuối tuần: ${enabled}`, new Date());
   return adminGetDashboardData(selectedDate, monthKey);
+}
+
+/**
+ * Gán 1 suất trưa chưa xác định (unattributed) cho một thành viên cụ thể.
+ * Tăng attributedLunchCount lên 1, giảm unattributedLunchCount đi 1.
+ * Giữ nguyên LUNCH_ACTUAL (tổng quyết toán chính thức không đổi).
+ */
+function adminAssignUnattributedLunch(dateKey, memberId, monthKey) {
+  assertAdmin_();
+  const selectedDate = normalizeDateKey_(dateKey);
+  const member = adminFindMember_(memberId);
+  const settlement = getDailySettlement_(selectedDate);
+  if (!settlement || settlement.unattributedLunchCount === null || settlement.unattributedLunchCount <= 0) {
+    throw new Error(`Ngày ${dateDisplayFromKey_(selectedDate)} không còn suất chưa xác định người để gán.`);
+  }
+
+  const now = new Date();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = getSheet_(APP.SHEETS.BOOKINGS);
+    const row = [selectedDate, member.id, member.name, APP.MEAL_TYPES.LUNCH, APP.MEAL_STATES.BOOKED, now];
+    sh.appendRow(row);
+    appendAudit_(selectedDate, member, APP.MEAL_TYPES.LUNCH, 'ADMIN_ASSIGN_UNATTRIBUTED_LUNCH', 'ADMIN', `Gán suất cơm trưa chưa xác định cho ${member.name}`, now);
+
+    const newAttributed = (settlement.attributedLunchCount || 0) + 1;
+    const newUnattributed = settlement.unattributedLunchCount - 1;
+    upsertDailySettlement_(selectedDate, {
+      lunchActual: settlement.lunchActual,
+      dinnerNoteCount: settlement.dinnerNoteCount,
+      dinnerNote: settlement.dinnerNote,
+      source: settlement.source,
+      status: settlement.status,
+      note: settlement.note,
+      attributedLunchCount: newAttributed,
+      unattributedLunchCount: newUnattributed,
+    });
+  } finally {
+    lock.releaseLock();
+  }
+
+  return adminGetDashboardData(selectedDate, monthKey || selectedDate.slice(0, 7));
 }
