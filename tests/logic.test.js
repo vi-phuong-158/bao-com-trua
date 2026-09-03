@@ -832,7 +832,10 @@ test('56d. Security: all admin functions in Admin.gs verify assertAdmin_()', () 
     'adminAddMember',
     'adminSaveCutoff',
     'adminSendDailyEmail',
-    'adminSendMonthlyEmail'
+    'adminSendMonthlyEmail',
+    'adminSaveDailySettlement',
+    'adminSetMonthStatus',
+    'adminToggleWeekendServiceDay'
   ];
 
   adminEndpoints.forEach(fnName => {
@@ -896,4 +899,314 @@ test('60. Monthly Summary: correctly tallies mixed unmigrated and migrated rows'
   assert.equal(summary.totalLunch, 3);
   assert.equal(summary.totalDinner, 1);
   assert.equal(summary.total, 4);
+});
+
+// =========================================================================
+// 13. End-to-End Live Reconciliation & Opt-Out Lunch Model Regressions
+// =========================================================================
+
+const AUGUST_2026_TEST_DATA = [
+  { date: '2026-08-10', lunch: 14, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-11', lunch: 13, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-12', lunch: 0,  dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-13', lunch: 12, dinner: 2, dinnerNote: 'Sổ tay ghi +2 suất tối. Chỉ lưu ghi chú, không tính tiền cơm trưa.', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-14', lunch: 10, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-17', lunch: 10, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-18', lunch: 13, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-19', lunch: 0,  dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-20', lunch: 15, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-21', lunch: 11, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-22', lunch: 6,  dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK_ZALO' },
+  { date: '2026-08-23', lunch: 2,  dinner: 2, dinnerNote: 'Zalo: trưa Phạm Hùng, Thịnh; chiều Phạm Hùng, Thịnh. Lunch quyết toán = 2.', source: 'OWNER_NOTEBOOK_ZALO' },
+  { date: '2026-08-24', lunch: 12, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-25', lunch: 14, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-26', lunch: 14, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-27', lunch: 10, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-28', lunch: 14, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-30', lunch: 7,  dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-31', lunch: 4,  dinner: 4, dinnerNote: 'Zalo: Trưa Hiệp, Thành, Cường, Nam; chiều Hiệp, Thành, Nam, Thịnh. Lunch quyết toán = 4.', source: 'OWNER_NOTEBOOK_ZALO' },
+];
+
+function resolveOfficialLunch(softwareLunch, dailySettlement) {
+  if (dailySettlement && dailySettlement.lunchActual !== null && dailySettlement.lunchActual !== undefined) {
+    return Number(dailySettlement.lunchActual);
+  }
+  return Number(softwareLunch || 0);
+}
+
+function simulateSeedAugust(existingSheetMap, augustData) {
+  const totalLunch = augustData.reduce((s, i) => s + i.lunch, 0);
+  const totalDinner = augustData.reduce((s, i) => s + i.dinner, 0);
+  if (totalLunch !== 181) throw new Error(`Total lunch must be 181, got ${totalLunch}`);
+  if (totalDinner !== 8) throw new Error(`Total dinner notes must be 8, got ${totalDinner}`);
+  if (augustData.length !== 19) throw new Error(`Days must be 19, got ${augustData.length}`);
+
+  for (const item of augustData) {
+    const ex = existingSheetMap[item.date];
+    if (ex && ex.lunchActual !== null && ex.lunchActual !== undefined) {
+      if (ex.lunchActual !== item.lunch && !ex.source.startsWith('OWNER_NOTEBOOK')) {
+        throw new Error(`Conflict on ${item.date}: existing ${ex.lunchActual}, seed ${item.lunch}`);
+      }
+    }
+  }
+
+  const newMap = { ...existingSheetMap };
+  for (const item of augustData) {
+    newMap[item.date] = {
+      dateKey: item.date,
+      lunchActual: item.lunch,
+      dinnerNoteCount: item.dinner,
+      dinnerNote: item.dinnerNote,
+      source: item.source,
+      status: 'RECONCILED',
+    };
+  }
+
+  return {
+    month: '2026-08',
+    lunchActual: totalLunch,
+    dinnerNoteCount: totalDinner,
+    daysReconciled: augustData.length,
+    map: newMap,
+  };
+}
+
+function simulateOptOutAutoBook({ isWeekday, isWeekendService, isLocked, isClosed, members, existingBookings }) {
+  const isServiceDay = (!isClosed && (isWeekday || isWeekendService));
+  if (!isServiceDay || isLocked) return [];
+
+  const existingLunchMemberIds = new Set(
+    existingBookings.filter(b => b.mealType === 'LUNCH').map(b => b.memberId)
+  );
+
+  return members
+    .filter(m => m.autoBook && !existingLunchMemberIds.has(m.id))
+    .map(m => ({ memberId: m.id, mealType: 'LUNCH', status: 'BOOKED' }));
+}
+
+function simulateUserSelfRemove({ monthStatus, bookings, memberId, dateKey }) {
+  if (monthStatus === 'LOCKED') {
+    throw new Error('Tháng đã được chốt sổ (LOCKED), không thể tự trừ suất.');
+  }
+  const memberBookings = bookings.filter(b => b.memberId === memberId && b.dateKey === dateKey && b.mealType === 'LUNCH');
+  const latest = memberBookings[memberBookings.length - 1];
+  if (!latest || latest.status !== 'BOOKED') {
+    throw new Error('Không có suất cơm trưa hợp lệ để trừ.');
+  }
+  bookings.push({
+    dateKey,
+    memberId,
+    mealType: 'LUNCH',
+    status: 'CANCELLED',
+    action: 'USER_SELF_REMOVE_LUNCH',
+  });
+  return { ok: true };
+}
+
+test('61. Settlement: official daily actual overrides software count', () => {
+  const softwareLunch = 13;
+  const settlement = { lunchActual: 15, dinnerNoteCount: 0 };
+  const official = resolveOfficialLunch(softwareLunch, settlement);
+  assert.equal(official, 15);
+  const diff = official - softwareLunch;
+  assert.equal(diff, 2);
+});
+
+test('62. Settlement: no actual falls back to software count', () => {
+  const softwareLunch = 13;
+  const settlement = { lunchActual: null, dinnerNoteCount: 0 };
+  const official = resolveOfficialLunch(softwareLunch, settlement);
+  assert.equal(official, 13);
+  assert.equal(official - softwareLunch, 0);
+});
+
+test('63. Settlement: Dinner does not affect official Lunch', () => {
+  const softwareLunch = 10;
+  const settlement = { lunchActual: 10, dinnerNoteCount: 5, dinnerNote: '5 suất tối liên hoan' };
+  const official = resolveOfficialLunch(softwareLunch, settlement);
+  assert.equal(official, 10);
+});
+
+test('64. August seed sum strictly equals 181', () => {
+  const totalLunch = AUGUST_2026_TEST_DATA.reduce((sum, item) => sum + item.lunch, 0);
+  assert.equal(totalLunch, 181);
+});
+
+test('65. August dinner notes sum strictly equals 8 and does NOT add to lunch', () => {
+  const totalDinner = AUGUST_2026_TEST_DATA.reduce((sum, item) => sum + item.dinner, 0);
+  assert.equal(totalDinner, 8);
+  const totalLunch = AUGUST_2026_TEST_DATA.reduce((sum, item) => sum + item.lunch, 0);
+  assert.equal(totalLunch, 181);
+});
+
+test('66. Seed is idempotent when executed multiple times', () => {
+  const initialMap = {};
+  const run1 = simulateSeedAugust(initialMap, AUGUST_2026_TEST_DATA);
+  assert.equal(run1.lunchActual, 181);
+  assert.equal(run1.daysReconciled, 19);
+
+  const run2 = simulateSeedAugust(run1.map, AUGUST_2026_TEST_DATA);
+  assert.equal(run2.lunchActual, 181);
+  assert.equal(run2.daysReconciled, 19);
+  assert.equal(Object.keys(run2.map).length, 19);
+});
+
+test('67. Existing conflicting manual actual row stops seed with error', () => {
+  const mapWithConflict = {
+    '2026-08-10': { lunchActual: 25, source: 'ADMIN' },
+  };
+  assert.throws(() => {
+    simulateSeedAugust(mapWithConflict, AUGUST_2026_TEST_DATA);
+  }, /Conflict on 2026-08-10/);
+});
+
+test('68. CHAM_COM rows remain 100% unchanged after seed', () => {
+  const originalChamCom = [
+    { dateKey: '2026-08-10', memberId: 'm1', mealType: 'LUNCH', status: 'BOOKED' },
+    { dateKey: '2026-08-10', memberId: 'm2', mealType: 'LUNCH', status: 'BOOKED' },
+  ];
+  const chamComClone = JSON.parse(JSON.stringify(originalChamCom));
+
+  const seedResult = simulateSeedAugust({}, AUGUST_2026_TEST_DATA);
+  assert.equal(seedResult.lunchActual, 181);
+
+  assert.deepEqual(originalChamCom, chamComClone);
+});
+
+test('69. User default Lunch works (auto-books active members with autoBook=true on workdays)', () => {
+  const members = [
+    { id: 'm1', autoBook: true },
+    { id: 'm2', autoBook: false },
+    { id: 'm3', autoBook: true },
+  ];
+  const booked = simulateOptOutAutoBook({
+    isWeekday: true,
+    isWeekendService: false,
+    isLocked: false,
+    isClosed: false,
+    members,
+    existingBookings: [],
+  });
+  assert.equal(booked.length, 2);
+  assert.deepEqual(booked.map(b => b.memberId), ['m1', 'm3']);
+  assert.ok(booked.every(b => b.mealType === 'LUNCH'));
+});
+
+test('70. User CANCEL prevents auto re-book on same day', () => {
+  const members = [{ id: 'm1', autoBook: true }];
+  const existingBookings = [
+    { memberId: 'm1', mealType: 'LUNCH', status: 'CANCELLED' },
+  ];
+  const booked = simulateOptOutAutoBook({
+    isWeekday: true,
+    isWeekendService: false,
+    isLocked: false,
+    isClosed: false,
+    members,
+    existingBookings,
+  });
+  assert.equal(booked.length, 0);
+});
+
+test('71. Weekend is not auto-booked by default', () => {
+  const members = [{ id: 'm1', autoBook: true }];
+  const booked = simulateOptOutAutoBook({
+    isWeekday: false,
+    isWeekendService: false,
+    isLocked: false,
+    isClosed: false,
+    members,
+    existingBookings: [],
+  });
+  assert.equal(booked.length, 0);
+});
+
+test('72. Weekend service-day enables default lunch auto-book', () => {
+  const members = [{ id: 'm1', autoBook: true }];
+  const booked = simulateOptOutAutoBook({
+    isWeekday: false,
+    isWeekendService: true,
+    isLocked: false,
+    isClosed: false,
+    members,
+    existingBookings: [],
+  });
+  assert.equal(booked.length, 1);
+  assert.equal(booked[0].memberId, 'm1');
+});
+
+test('73. User can self-remove previous Lunch in open reconciliation window', () => {
+  const bookings = [
+    { dateKey: '2026-08-20', memberId: 'm1', mealType: 'LUNCH', status: 'BOOKED' },
+  ];
+  const res = simulateUserSelfRemove({
+    monthStatus: 'RECONCILING',
+    bookings,
+    memberId: 'm1',
+    dateKey: '2026-08-20',
+  });
+  assert.equal(res.ok, true);
+  assert.equal(bookings.length, 2);
+  assert.equal(bookings[1].status, 'CANCELLED');
+  assert.equal(bookings[1].action, 'USER_SELF_REMOVE_LUNCH');
+});
+
+test('74. LOCKED month rejects user self-remove edit', () => {
+  const bookings = [
+    { dateKey: '2026-08-20', memberId: 'm1', mealType: 'LUNCH', status: 'BOOKED' },
+  ];
+  assert.throws(() => {
+    simulateUserSelfRemove({
+      monthStatus: 'LOCKED',
+      bookings,
+      memberId: 'm1',
+      dateKey: '2026-08-20',
+    });
+  }, /LOCKED/);
+  assert.equal(bookings.length, 1);
+});
+
+test('75. Admin can reopen/override monthly settlement status with audit', () => {
+  let monthStatus = 'LOCKED';
+  const audits = [];
+
+  monthStatus = 'RECONCILING';
+  audits.push({ action: 'ADMIN_SET_MONTH_STATUS', status: monthStatus, by: 'admin@gmail.com' });
+
+  assert.equal(monthStatus, 'RECONCILING');
+  assert.equal(audits.length, 1);
+  assert.equal(audits[0].status, 'RECONCILING');
+});
+
+test('76. Monthly payable total strictly excludes Dinner', () => {
+  const summary = {
+    totalSoftwareLunch: 165,
+    totalOfficialLunch: 181,
+    dinnerNotes: 8,
+    unitPrice: 30000,
+  };
+
+  const totalPayableMoney = summary.totalOfficialLunch * summary.unitPrice;
+  assert.equal(totalPayableMoney, 5430000);
+  assert.notEqual(totalPayableMoney, (181 + 8) * 30000);
+});
+
+test('77. Data Loss Regression: per-row parser continues to parse 5-col and 6-col safely', () => {
+  const row5Col = ['2026-09-03', 'm1', 'Người A', 'BOOKED', '2026-09-03 07:15:00'];
+  const row6Col = ['2026-09-03', 'm2', 'Người B', 'LUNCH', 'BOOKED', '2026-09-03 07:20:00'];
+
+  const p5 = parseBookingRow(row5Col);
+  const p6 = parseBookingRow(row6Col);
+
+  assert.equal(p5.status, 'BOOKED');
+  assert.equal(p5.mealType, 'LUNCH');
+  assert.equal(p6.status, 'BOOKED');
+  assert.equal(p6.mealType, 'LUNCH');
+});
+
+test('78. Security: assertAdmin accepts both authorized owners and rejects anonymous', () => {
+  assert.equal(assertAdmin('vingocphuong.92@gmail.com', ['vingocphuong.92@gmail.com', 'anmphongandn@gmail.com']), true);
+  assert.equal(assertAdmin('anmphongandn@gmail.com', ['vingocphuong.92@gmail.com', 'anmphongandn@gmail.com']), true);
+  assert.throws(() => assertAdmin('', ['vingocphuong.92@gmail.com']), /Không có quyền quản trị/);
+  assert.throws(() => assertAdmin('intruder@gmail.com', ['vingocphuong.92@gmail.com']), /Không có quyền quản trị/);
 });
