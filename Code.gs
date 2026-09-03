@@ -6,6 +6,20 @@ const APP = {
   CUTOFF_MINUTE: 0,
   DEFAULT_CUTOFF: '08:00',
   PRIORITY_MEMBER_NAME: 'Đỗ Đức Cường',
+  MEAL_TYPES: {
+    LUNCH: 'LUNCH',
+    DINNER: 'DINNER',
+  },
+  MEAL_STATES: {
+    BOOKED: 'BOOKED',
+    CANCELLED: 'CANCELLED',
+    CLEARED: 'CLEARED',
+  },
+  RECONCILIATION_STATES: {
+    OPEN: 'OPEN',
+    RECONCILED: 'RECONCILED',
+    NEEDS_REVIEW: 'NEEDS_REVIEW',
+  },
   DEFAULT_MEMBER_NAMES: [
     'Ngô Đức Thành',
     'Phạm Thị Thu Thủy',
@@ -51,6 +65,15 @@ const APP = {
     AUDIT: 'NHAT_KY',
     CONFIG: 'CAU_HINH',
     CLOSED_DAYS: 'NGAY_NGHI',
+    RECONCILIATION: 'DOI_SOAT',
+  },
+  HEADERS: {
+    MEMBERS: ['ID', 'HO_TEN', 'DANG_HOAT_DONG', 'TU_DONG_BAO_COM'],
+    BOOKINGS: ['NGAY', 'MEMBER_ID', 'HO_TEN', 'LOAI_BUA', 'TRANG_THAI', 'CAP_NHAT_LUC'],
+    AUDIT: ['THOI_GIAN', 'NGAY', 'MEMBER_ID', 'HO_TEN', 'LOAI_BUA', 'HANH_DONG', 'NGUON', 'GHI_CHU'],
+    CONFIG: ['KEY', 'VALUE'],
+    CLOSED_DAYS: ['NGAY', 'TRANG_THAI', 'GHI_CHU', 'CAP_NHAT_BOI', 'CAP_NHAT_LUC'],
+    RECONCILIATION: ['NGAY', 'TRANG_THAI', 'DOI_SOAT_BOI', 'DOI_SOAT_LUC', 'GHI_CHU', 'SNAPSHOT_HASH'],
   },
 };
 
@@ -58,8 +81,20 @@ function doGet(e) {
   const pathInfo = String((e && e.pathInfo) || '').split('/').filter(Boolean).join('/');
   const isAdminWebApp = String((e && e.parameter && e.parameter.admin) || '') === '1';
 
-  if (pathInfo === 'admin') return renderAdminWebApp_();
-  if (isAdminWebApp) return renderAdminWebApp_();
+  if (pathInfo === 'admin' || isAdminWebApp) {
+    try {
+      assertAdmin_();
+      return renderAdminWebApp_();
+    } catch (err) {
+      return HtmlService.createHtmlOutput(
+        '<div style="font-family:Arial,sans-serif;padding:24px;text-align:center;">' +
+        '<h2>Không có quyền truy cập trang quản trị</h2>' +
+        '<p>Admin Dashboard chỉ hoạt động trong Google Sheet hoặc tài khoản Admin được ủy quyền (' +
+        APP.ADMIN_EMAILS.join(', ') + ').</p>' +
+        '</div>'
+      ).setTitle('Quản trị suất ăn');
+    }
+  }
 
   return HtmlService.createTemplateFromFile('Index')
     .evaluate()
@@ -72,48 +107,157 @@ function renderAdminWebApp_() {
   const template = HtmlService.createTemplateFromFile('AdminDashboard');
   template.isWebApp = true;
   return template.evaluate()
-    .setTitle('Quản trị cơm trưa')
+    .setTitle('Quản trị suất ăn')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
 }
 
 /**
- * Chạy 1 lần sau khi tạo Apps Script.
- * Tạo đủ sheet, cấu hình mặc định và trigger tự động.
+ * Chạy 1 lần sau khi tạo Apps Script hoặc khi nâng cấp hệ thống.
+ * Đảm bảo đủ sheet, migrate dữ liệu cũ sang LOAI_BUA = LUNCH, và cài trigger tự động.
  */
 function setupApp() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) throw new Error('Hãy gắn Apps Script với một Google Sheet trước khi chạy setupApp().');
 
-  ensureSheet_(ss, APP.SHEETS.MEMBERS, ['ID', 'HO_TEN', 'DANG_HOAT_DONG', 'TU_DONG_BAO_COM']);
-  ensureSheet_(ss, APP.SHEETS.BOOKINGS, ['NGAY', 'MEMBER_ID', 'HO_TEN', 'TRANG_THAI', 'CAP_NHAT_LUC']);
-  ensureSheet_(ss, APP.SHEETS.AUDIT, ['THOI_GIAN', 'NGAY', 'MEMBER_ID', 'HO_TEN', 'HANH_DONG', 'NGUON', 'GHI_CHU']);
-  ensureSheet_(ss, APP.SHEETS.CONFIG, ['KEY', 'VALUE']);
-  ensureSheet_(ss, APP.SHEETS.CLOSED_DAYS, ['NGAY', 'TRANG_THAI', 'GHI_CHU', 'CAP_NHAT_BOI', 'CAP_NHAT_LUC']);
+  ensureSheet_(ss, APP.SHEETS.MEMBERS, APP.HEADERS.MEMBERS);
+  migrateBookingsSheet_(ss);
+  migrateAuditSheet_(ss);
+  ensureSheet_(ss, APP.SHEETS.CONFIG, APP.HEADERS.CONFIG);
+  ensureSheet_(ss, APP.SHEETS.CLOSED_DAYS, APP.HEADERS.CLOSED_DAYS);
+  ensureSheet_(ss, APP.SHEETS.RECONCILIATION, APP.HEADERS.RECONCILIATION);
 
   const seeded = seedDefaultMembers_(ss);
   seedConfig_(ss);
   formatSheets_(ss);
   installAutomationTriggers_();
 
-  return `Đã khởi tạo xong. Đã thêm ${seeded.added} thành viên mặc định. Deploy > New deployment > Web app để sử dụng.`;
+  return `Đã khởi tạo xong. Đã thêm ${seeded.added} thành viên mặc định. Hệ thống đã nâng cấp mô hình Trưa & Tối.`;
 }
 
 /**
- * Chạy hàm này nếu ứng dụng đã được khởi tạo trước đó nhưng chưa có danh sách mặc định.
- * Chỉ thêm những tên còn thiếu, không thay đổi thành viên hiện có.
+ * Migrate sheet CHAM_COM sang schema 6 cột:
+ * NGAY, MEMBER_ID, HO_TEN, LOAI_BUA, TRANG_THAI, CAP_NHAT_LUC.
+ * Dữ liệu cũ thiếu LOAI_BUA được tự động điền 'LUNCH'.
+ */
+function migrateBookingsSheet_(ss) {
+  let sh = ss.getSheetByName(APP.SHEETS.BOOKINGS);
+  if (!sh) sh = ss.insertSheet(APP.SHEETS.BOOKINGS);
+
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+
+  if (lastRow === 0) {
+    sh.getRange(1, 1, 1, APP.HEADERS.BOOKINGS.length).setValues([APP.HEADERS.BOOKINGS]);
+    sh.setFrozenRows(1);
+    return;
+  }
+
+  const currentHeaders = sh.getRange(1, 1, 1, Math.max(lastCol, 1)).getValues()[0].map(h => String(h || '').trim().toUpperCase());
+  const mealTypeIndex = currentHeaders.indexOf('LOAI_BUA');
+
+  if (mealTypeIndex === -1) {
+    // Schema cũ 5 cột: NGAY (1), MEMBER_ID (2), HO_TEN (3), TRANG_THAI (4), CAP_NHAT_LUC (5)
+    // Chèn cột LOAI_BUA vào sau cột HO_TEN (vị trí cột 4)
+    sh.insertColumnAfter(3);
+    sh.getRange(1, 4).setValue('LOAI_BUA');
+    if (lastRow >= 2) {
+      const colValues = [];
+      for (let i = 2; i <= lastRow; i++) {
+        colValues.push(['LUNCH']);
+      }
+      sh.getRange(2, 4, colValues.length, 1).setValues(colValues);
+    }
+  } else {
+    // Cột đã tồn tại, kiểm tra và điền 'LUNCH' cho các ô trống
+    if (lastRow >= 2) {
+      const colNum = mealTypeIndex + 1;
+      const values = sh.getRange(2, colNum, lastRow - 1, 1).getValues();
+      let changed = false;
+      for (let i = 0; i < values.length; i++) {
+        const val = String(values[i][0] || '').trim();
+        if (!val) {
+          values[i][0] = 'LUNCH';
+          changed = true;
+        }
+      }
+      if (changed) {
+        sh.getRange(2, colNum, values.length, 1).setValues(values);
+      }
+    }
+  }
+
+  sh.getRange(1, 1, 1, APP.HEADERS.BOOKINGS.length).setValues([APP.HEADERS.BOOKINGS]);
+  sh.setFrozenRows(1);
+}
+
+/**
+ * Migrate sheet NHAT_KY sang schema 8 cột có LOAI_BUA.
+ */
+function migrateAuditSheet_(ss) {
+  let sh = ss.getSheetByName(APP.SHEETS.AUDIT);
+  if (!sh) sh = ss.insertSheet(APP.SHEETS.AUDIT);
+
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+
+  if (lastRow === 0) {
+    sh.getRange(1, 1, 1, APP.HEADERS.AUDIT.length).setValues([APP.HEADERS.AUDIT]);
+    sh.setFrozenRows(1);
+    return;
+  }
+
+  const currentHeaders = sh.getRange(1, 1, 1, Math.max(lastCol, 1)).getValues()[0].map(h => String(h || '').trim().toUpperCase());
+  const mealTypeIndex = currentHeaders.indexOf('LOAI_BUA');
+
+  if (mealTypeIndex === -1) {
+    // Schema cũ 7 cột: THOI_GIAN, NGAY, MEMBER_ID, HO_TEN, HANH_DONG, NGUON, GHI_CHU
+    // Chèn LOAI_BUA sau HO_TEN (vị trí cột 5)
+    sh.insertColumnAfter(4);
+    sh.getRange(1, 5).setValue('LOAI_BUA');
+    if (lastRow >= 2) {
+      const colValues = [];
+      for (let i = 2; i <= lastRow; i++) {
+        colValues.push(['LUNCH']);
+      }
+      sh.getRange(2, 5, colValues.length, 1).setValues(colValues);
+    }
+  } else {
+    if (lastRow >= 2) {
+      const colNum = mealTypeIndex + 1;
+      const values = sh.getRange(2, colNum, lastRow - 1, 1).getValues();
+      let changed = false;
+      for (let i = 0; i < values.length; i++) {
+        const val = String(values[i][0] || '').trim();
+        if (!val) {
+          values[i][0] = 'LUNCH';
+          changed = true;
+        }
+      }
+      if (changed) {
+        sh.getRange(2, colNum, values.length, 1).setValues(values);
+      }
+    }
+  }
+
+  sh.getRange(1, 1, 1, APP.HEADERS.AUDIT.length).setValues([APP.HEADERS.AUDIT]);
+  sh.setFrozenRows(1);
+}
+
+/**
+ * Thêm những tên còn thiếu vào THANH_VIEN, không sửa hoặc xóa thành viên hiện có.
  */
 function seedDefaultMembers() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) throw new Error('Hãy gắn Apps Script với một Google Sheet trước khi chạy seedDefaultMembers().');
 
-  ensureSheet_(ss, APP.SHEETS.MEMBERS, ['ID', 'HO_TEN', 'DANG_HOAT_DONG', 'TU_DONG_BAO_COM']);
+  ensureSheet_(ss, APP.SHEETS.MEMBERS, APP.HEADERS.MEMBERS);
   const seeded = seedDefaultMembers_(ss);
   formatSheets_(ss);
   return `Đã thêm ${seeded.added} thành viên. Hiện có ${seeded.total} thành viên trong danh sách.`;
 }
 
 /**
- * Có thể chạy hàm này để tự đánh ID cho những người đã nhập tên nhưng chưa có ID.
+ * Tự sinh ID cho những thành viên chưa có ID.
  */
 function normalizeMembers() {
   const sh = getSheet_(APP.SHEETS.MEMBERS);
@@ -149,11 +293,14 @@ function normalizeMembers() {
   return `Đã chuẩn hóa danh sách. ${changed} ô được cập nhật.`;
 }
 
+/**
+ * Dữ liệu khởi tạo cho Web App người dùng (chỉ quan tâm Cơm Trưa).
+ */
 function getInitialData() {
   const now = new Date();
   const dateKey = dateKey_(now);
   const members = getMembers_();
-  const bookings = getBookingsForDate_(dateKey);
+  const bookings = getBookingsForDate_(dateKey, APP.MEAL_TYPES.LUNCH);
   const monthlySummary = getMonthlySummary_(dateKey.slice(0, 7));
 
   return {
@@ -177,21 +324,62 @@ function getInitialData() {
   };
 }
 
+/**
+ * Thống kê tháng: phân tách Cơm Trưa (lunch), Cơm Tối (dinner) và Tổng (total).
+ * Quy tắc đếm: tối đa 1 suất/người/ngày/bữa.
+ */
 function getMonthlySummary_(monthKey) {
   const normalized = normalizeMonthKey_(monthKey);
-  const members = getMembers_();
-  const counts = {};
-  members.forEach(member => { counts[member.id] = 0; });
+  const members = getMembers_(true);
+  const lunchCounts = {};
+  const dinnerCounts = {};
+  members.forEach(member => {
+    lunchCounts[member.id] = 0;
+    dinnerCounts[member.id] = 0;
+  });
+
   const states = getFinalBookingStateMap_(normalized);
   const closedDays = getClosedDayMap_(normalized);
+
   Object.keys(states).forEach(key => {
     const state = states[key];
-    if (state.status === 'BOOKED' && !closedDays[state.dateKey] && state.memberId in counts) counts[state.memberId]++;
+    if (state.status === APP.MEAL_STATES.BOOKED && !closedDays[state.dateKey] && state.memberId in lunchCounts) {
+      if (state.mealType === APP.MEAL_TYPES.DINNER) {
+        dinnerCounts[state.memberId]++;
+      } else {
+        lunchCounts[state.memberId]++;
+      }
+    }
   });
-  const rows = members.map(member => ({ memberId: member.id, name: member.name, total: counts[member.id] || 0 }))
-    .sort((a, b) => b.total - a.total || memberDisplayOrder_(a, b));
-  return { month: normalized, monthLabel: monthDisplay_(normalized), total: rows.reduce((sum, row) => sum + row.total, 0), rows };
+
+  const rows = members.map(member => {
+    const lunch = lunchCounts[member.id] || 0;
+    const dinner = dinnerCounts[member.id] || 0;
+    const total = lunch + dinner;
+    return {
+      memberId: member.id,
+      name: member.name,
+      active: member.active,
+      lunch,
+      dinner,
+      total,
+    };
+  }).sort((a, b) => b.total - a.total || b.lunch - a.lunch || memberDisplayOrder_(a, b));
+
+  const totalLunch = rows.reduce((sum, r) => sum + r.lunch, 0);
+  const totalDinner = rows.reduce((sum, r) => sum + r.dinner, 0);
+  const total = totalLunch + totalDinner;
+
+  return {
+    month: normalized,
+    monthLabel: monthDisplay_(normalized),
+    totalLunch,
+    totalDinner,
+    total,
+    rows,
+  };
 }
+
 function bookToday(memberId) {
   return changeBooking_(memberId, 'BOOK');
 }
@@ -201,8 +389,7 @@ function cancelToday(memberId) {
 }
 
 /**
- * Lưu yêu cầu hủy cơm cho một ngày làm việc trong tương lai.
- * Bản ghi CANCELLED giúp tác vụ tự báo cơm bỏ qua đúng ngày này.
+ * Lưu yêu cầu hủy cơm trưa cho một ngày làm việc trong tương lai.
  */
 function cancelFutureMeal(memberId, targetDateKey) {
   const dateKey = normalizeDateKey_(targetDateKey);
@@ -228,15 +415,15 @@ function cancelFutureMeal(memberId, targetDateKey) {
   lock.waitLock(10000);
   try {
     const sh = getSheet_(APP.SHEETS.BOOKINGS);
-    const existing = findBookingRow_(sh, dateKey, member.id);
-    const row = [dateKey, member.id, member.name, 'CANCELLED', now];
+    const existing = findBookingRow_(sh, dateKey, member.id, APP.MEAL_TYPES.LUNCH);
+    const row = [dateKey, member.id, member.name, APP.MEAL_TYPES.LUNCH, APP.MEAL_STATES.CANCELLED, now];
 
     if (existing.rowNumber) {
-      sh.getRange(existing.rowNumber, 1, 1, 5).setValues([row]);
+      sh.getRange(existing.rowNumber, 1, 1, 6).setValues([row]);
     } else {
       sh.appendRow(row);
     }
-    appendAudit_(dateKey, member, 'USER_CANCEL_FUTURE', 'USER', '');
+    appendAudit_(dateKey, member, APP.MEAL_TYPES.LUNCH, 'USER_CANCEL_FUTURE', 'USER', '');
   } finally {
     lock.releaseLock();
   }
@@ -250,12 +437,19 @@ function getFutureCancellations(memberId) {
   const todayKey = dateKey_(new Date());
   const seen = {};
   getBookingRows_().forEach(row => {
-    if (row.memberId !== member.id || row.dateKey <= todayKey || row.status !== 'CANCELLED') return;
+    if (row.memberId !== member.id || row.dateKey <= todayKey || row.mealType !== APP.MEAL_TYPES.LUNCH || row.status !== APP.MEAL_STATES.CANCELLED) return;
     const previous = seen[row.dateKey];
     if (!previous || row.rowNumber >= previous.rowNumber) seen[row.dateKey] = row;
   });
-  return { ok: true, member: member.name, days: Object.keys(seen).map(dateKey => ({ dateKey, dateLabel: dateDisplayFromKey_(dateKey) })).sort((a, b) => a.dateKey.localeCompare(b.dateKey)) };
+  return {
+    ok: true,
+    member: member.name,
+    days: Object.keys(seen)
+      .map(dateKey => ({ dateKey, dateLabel: dateDisplayFromKey_(dateKey) }))
+      .sort((a, b) => a.dateKey.localeCompare(b.dateKey)),
+  };
 }
+
 function setAutoBooking(memberId, enabled) {
   const member = getMemberById_(memberId);
   if (!member) throw new Error('Không tìm thấy thành viên hoặc thành viên đã ngừng hoạt động.');
@@ -266,7 +460,7 @@ function setAutoBooking(memberId, enabled) {
     const now = new Date();
     const autoBook = parseBool_(enabled);
     getSheet_(APP.SHEETS.MEMBERS).getRange(member.rowNumber, 4).setValue(autoBook);
-    appendAudit_(dateKey_(now), member, autoBook ? 'AUTO_BOOK_ON' : 'AUTO_BOOK_OFF', 'USER', '');
+    appendAudit_(dateKey_(now), member, APP.MEAL_TYPES.LUNCH, autoBook ? 'AUTO_BOOK_ON' : 'AUTO_BOOK_OFF', 'USER', '');
   } finally {
     lock.releaseLock();
   }
@@ -274,6 +468,9 @@ function setAutoBooking(memberId, enabled) {
   return getInitialData();
 }
 
+/**
+ * Người dùng báo/hủy cơm trưa hôm nay (luôn là LUNCH).
+ */
 function changeBooking_(memberId, action) {
   const now = new Date();
   const todayKey = dateKey_(now);
@@ -293,17 +490,16 @@ function changeBooking_(memberId, action) {
 
   try {
     const sh = getSheet_(APP.SHEETS.BOOKINGS);
-    const existing = findBookingRow_(sh, dateKey, member.id);
-    const status = action === 'BOOK' ? 'BOOKED' : 'CANCELLED';
+    const existing = findBookingRow_(sh, dateKey, member.id, APP.MEAL_TYPES.LUNCH);
+    const status = action === 'BOOK' ? APP.MEAL_STATES.BOOKED : APP.MEAL_STATES.CANCELLED;
+    const row = [dateKey, member.id, member.name, APP.MEAL_TYPES.LUNCH, status, now];
 
     if (existing.rowNumber) {
-      sh.getRange(existing.rowNumber, 1, 1, 5).setValues([[
-        dateKey, member.id, member.name, status, now
-      ]]);
+      sh.getRange(existing.rowNumber, 1, 1, 6).setValues([row]);
     } else {
-      sh.appendRow([dateKey, member.id, member.name, status, now]);
+      sh.appendRow(row);
     }
-    appendAudit_(dateKey, member, action === 'BOOK' ? 'USER_BOOK' : 'USER_CANCEL', 'USER', '');
+    appendAudit_(dateKey, member, APP.MEAL_TYPES.LUNCH, action === 'BOOK' ? 'USER_BOOK' : 'USER_CANCEL', 'USER', '');
   } finally {
     lock.releaseLock();
   }
@@ -311,49 +507,79 @@ function changeBooking_(memberId, action) {
   return getInitialData();
 }
 
+/**
+ * Đọc tất cả dòng từ CHAM_COM, hỗ trợ cả sheet 6 cột và sheet 5 cột (legacy).
+ */
 function getBookingRows_() {
   const sh = getSheet_(APP.SHEETS.BOOKINGS);
   const lastRow = sh.getLastRow();
   if (lastRow < 2) return [];
-  return sh.getRange(2, 1, lastRow - 1, 5).getValues().map((row, index) => ({
-    rowNumber: index + 2,
-    dateKey: normalizeDateCell_(row[0]),
-    memberId: String(row[1] || ''),
-    name: String(row[2] || ''),
-    status: String(row[3] || ''),
-    updatedAt: row[4],
-  }));
+  const numCols = Math.max(5, Math.min(6, sh.getLastColumn()));
+  const rawValues = sh.getRange(2, 1, lastRow - 1, numCols).getValues();
+
+  return rawValues.map((row, index) => {
+    const hasMealCol = numCols >= 6;
+    const mealType = hasMealCol ? normalizeMealType_(row[3]) : APP.MEAL_TYPES.LUNCH;
+    const status = String(hasMealCol ? row[4] : row[3] || '').trim().toUpperCase();
+    const updatedAt = hasMealCol ? row[5] : row[4];
+
+    return {
+      rowNumber: index + 2,
+      dateKey: normalizeDateCell_(row[0]),
+      memberId: String(row[1] || '').trim(),
+      name: String(row[2] || '').trim(),
+      mealType,
+      status,
+      updatedAt,
+    };
+  });
 }
 
+function normalizeMealType_(value) {
+  const s = String(value || '').trim().toUpperCase();
+  if (s === 'DINNER' || s === 'TOI' || s === 'COM_TOI' || s === 'TỐI') {
+    return APP.MEAL_TYPES.DINNER;
+  }
+  return APP.MEAL_TYPES.LUNCH;
+}
+
+/**
+ * Reducer lấy trạng thái cuối cùng cho từng (dateKey, memberId, mealType) trong tháng.
+ */
 function getFinalBookingStateMap_(monthKey) {
   const normalized = normalizeMonthKey_(monthKey);
   const states = {};
   getBookingRows_().forEach(row => {
     if (!row.dateKey.startsWith(normalized + '-')) return;
-    const key = `${row.dateKey}|${row.memberId}`;
+    const key = `${row.dateKey}|${row.memberId}|${row.mealType}`;
     const previous = states[key];
     if (!previous || row.rowNumber >= previous.rowNumber) states[key] = row;
   });
   return states;
 }
 
+/**
+ * Reducer lấy trạng thái cuối cùng cho từng (memberId, mealType) trong 1 ngày cụ thể.
+ */
 function getFinalBookingStateForDate_(dateKey) {
   const states = {};
   getBookingRows_().forEach(row => {
     if (row.dateKey !== dateKey) return;
-    const previous = states[row.memberId];
-    if (!previous || row.rowNumber >= previous.rowNumber) states[row.memberId] = row;
+    const key = `${row.memberId}|${row.mealType}`;
+    const previous = states[key];
+    if (!previous || row.rowNumber >= previous.rowNumber) states[key] = row;
   });
   return states;
 }
 
-function appendAudit_(dateKey, member, action, source, note, at) {
+function appendAudit_(dateKey, member, mealType, action, source, note, at) {
   const sh = getSheet_(APP.SHEETS.AUDIT);
   sh.appendRow([
     at || new Date(),
     dateKey || '',
     member && member.id ? member.id : '',
     member && member.name ? member.name : '',
+    mealType || APP.MEAL_TYPES.LUNCH,
     action || '',
     source || '',
     note || '',
@@ -386,6 +612,7 @@ function getClosedDay_(dateKey) {
 function isClosedDay_(dateKey) {
   return getClosedDay_(dateKey).closed;
 }
+
 function getClosedDayMap_(monthKey) {
   const normalized = normalizeMonthKey_(monthKey);
   const result = {};
@@ -403,19 +630,47 @@ function getClosedDayMap_(monthKey) {
   }
   return result;
 }
+
+/**
+ * Lịch sử theo dõi suất ăn của thành viên trong tháng (cho người dùng thường).
+ * Phân tách rõ Trưa và Tối.
+ */
 function getMonthlyHistory(memberId, monthKey) {
-  const member = getMemberById_(memberId);
+  const member = getMemberById_(memberId, true);
   if (!member) throw new Error('Không tìm thấy thành viên.');
   const normalized = normalizeMonthKey_(monthKey);
   const states = getFinalBookingStateMap_(normalized);
-  const days = Object.keys(states).map(key => states[key])
-    .filter(row => row.memberId === member.id && row.status === 'BOOKED' && !isClosedDay_(row.dateKey))
-    .map(row => ({ dateKey: row.dateKey, dateLabel: dateDisplayFromKey_(row.dateKey), updatedAt: formatDateTime_(row.updatedAt) }))
-    .sort((a, b) => a.dateKey.localeCompare(b.dateKey));
-  return { ok: true, member: member.name, month: normalized, monthLabel: monthDisplay_(normalized), total: days.length, days };
+  const closedDays = getClosedDayMap_(normalized);
+
+  const days = Object.keys(states)
+    .map(key => states[key])
+    .filter(row => row.memberId === member.id && row.status === APP.MEAL_STATES.BOOKED && !closedDays[row.dateKey])
+    .map(row => ({
+      dateKey: row.dateKey,
+      dateLabel: dateDisplayFromKey_(row.dateKey),
+      mealType: row.mealType,
+      mealLabel: row.mealType === APP.MEAL_TYPES.DINNER ? 'Cơm tối' : 'Cơm trưa',
+      updatedAt: formatDateTime_(row.updatedAt),
+    }))
+    .sort((a, b) => a.dateKey.localeCompare(b.dateKey) || (a.mealType === APP.MEAL_TYPES.LUNCH ? -1 : 1));
+
+  const lunchCount = days.filter(d => d.mealType === APP.MEAL_TYPES.LUNCH).length;
+  const dinnerCount = days.filter(d => d.mealType === APP.MEAL_TYPES.DINNER).length;
+
+  return {
+    ok: true,
+    member: member.name,
+    month: normalized,
+    monthLabel: monthDisplay_(normalized),
+    lunchCount,
+    dinnerCount,
+    total: lunchCount + dinnerCount,
+    days,
+  };
 }
+
 /**
- * Trigger gọi định kỳ. Hàm tự kiểm tra thời điểm và chống gửi trùng.
+ * Trigger định kỳ: Tự báo cơm trưa ngày làm việc và gửi báo cáo khi tới giờ chốt.
  */
 function automationTick() {
   const now = new Date();
@@ -425,7 +680,7 @@ function automationTick() {
   const minute = Number(Utilities.formatDate(now, APP.TZ, 'm'));
   const day = Number(Utilities.formatDate(now, APP.TZ, 'd'));
 
-  // Báo cáo ngày: sau giờ chốt trong CAU_HINH, chỉ gửi 1 lần/ngày.
+  // Báo cáo ngày: chỉ báo cơm trưa, sau giờ chốt trong CAU_HINH, chỉ gửi 1 lần/ngày.
   if (
     hour > cutoff.hour ||
     (hour === cutoff.hour && minute >= cutoff.minute)
@@ -440,11 +695,11 @@ function automationTick() {
 }
 
 function sendDailySummaryNow() {
-  sendDailySummary_(new Date(), true);
+  return sendDailySummary_(new Date(), true);
 }
 
 function sendPreviousMonthSummaryNow() {
-  sendMonthlySummary_(previousMonthKey_(new Date()), true);
+  return sendMonthlySummary_(previousMonthKey_(new Date()), true);
 }
 
 function sendDailySummaryIfNeeded_(now) {
@@ -458,20 +713,51 @@ function sendDailySummary_(now, manual) {
   return sendDailySummaryForDate_(dateKey_(now), manual);
 }
 
+/**
+ * Gửi email báo cáo cơm trưa hằng ngày.
+ * Email chỉ tổng hợp LUNCH. Snapshot hash chỉ phụ thuộc LUNCH.
+ */
 function sendDailySummaryForDate_(dateKey, manual) {
   const closedDay = getClosedDay_(dateKey);
-  const booked = closedDay.closed ? [] : getBookingsForDate_(dateKey);
+  const booked = closedDay.closed ? [] : getBookingsForDate_(dateKey, APP.MEAL_TYPES.LUNCH);
   const totalMembers = getMembers_().length;
   const snapshot = dailySnapshotHash_(dateKey, booked, closedDay.closed);
   const props = PropertiesService.getScriptProperties();
   const previous = readDailyEmailRecord_(dateKey);
   const isUpdate = Boolean(previous && (!previous.hash || previous.hash !== snapshot));
   const dateLabel = dateDisplayFromKey_(dateKey);
-  const subject = isUpdate ? `🍚 [CẬP NHẬT] Báo cơm ${dateLabel}: ${booked.length} suất` : `🍚 Báo cơm ${dateLabel}: ${booked.length} suất`;
+  const subject = isUpdate
+    ? `🍚 [CẬP NHẬT] Báo cơm trưa ${dateLabel}: ${booked.length} suất`
+    : `🍚 Báo cơm trưa ${dateLabel}: ${booked.length} suất`;
   const body = closedDay.closed
-    ? [`BÁO CƠM TRƯA — ${dateLabel}`, '', 'Hôm nay không tổ chức ăn trưa.', closedDay.note ? `Ghi chú: ${closedDay.note}` : '', '', manual ? '(Email được gửi thủ công từ Dashboard)' : `Hệ thống tự chốt lúc ${cutoffLabel_()}.`].join('\n')
-    : [`BÁO CƠM TRƯA — ${dateLabel}`, '', `Tổng số suất: ${booked.length}`, `Số người trong danh sách: ${totalMembers}`, '', 'Danh sách đã báo cơm:', booked.map((b, i) => `${i + 1}. ${b.name}`).join('\n') || 'Không có người báo cơm.', '', manual ? '(Email được gửi thủ công từ Dashboard)' : `Hệ thống tự chốt lúc ${cutoffLabel_()}.`].join('\n');
-  MailApp.sendEmail({ to: getConfig_('ADMIN_EMAIL', APP.ADMIN_EMAIL), subject, body, htmlBody: buildDailyEmailHtml_(dateFromKey_(dateKey), booked, totalMembers, closedDay), name: 'Báo cơm trưa' });
+    ? [
+        `BÁO CƠM TRƯA — ${dateLabel}`,
+        '',
+        'Hôm nay không tổ chức ăn trưa.',
+        closedDay.note ? `Ghi chú: ${closedDay.note}` : '',
+        '',
+        manual ? '(Email được gửi thủ công từ Dashboard)' : `Hệ thống tự chốt lúc ${cutoffLabel_()}.`,
+      ].join('\n')
+    : [
+        `BÁO CƠM TRƯA — ${dateLabel}`,
+        '',
+        `Tổng số suất trưa: ${booked.length}`,
+        `Số người trong danh sách: ${totalMembers}`,
+        '',
+        'Danh sách đã báo cơm trưa:',
+        booked.map((b, i) => `${i + 1}. ${b.name}`).join('\n') || 'Không có người báo cơm trưa.',
+        '',
+        manual ? '(Email được gửi thủ công từ Dashboard)' : `Hệ thống tự chốt lúc ${cutoffLabel_()}.`,
+      ].join('\n');
+
+  MailApp.sendEmail({
+    to: getConfig_('ADMIN_EMAIL', APP.ADMIN_EMAIL),
+    subject,
+    body,
+    htmlBody: buildDailyEmailHtml_(dateFromKey_(dateKey), booked, totalMembers, closedDay),
+    name: 'Báo cơm trưa',
+  });
+
   const record = { sentAt: new Date().toISOString(), hash: snapshot, total: booked.length, closed: closedDay.closed };
   props.setProperty('DAILY_EMAIL_' + dateKey, JSON.stringify(record));
   props.setProperty('DAILY_SENT_' + dateKey, record.sentAt);
@@ -487,19 +773,35 @@ function readDailyEmailRecord_(dateKey) {
   const legacy = props.getProperty('DAILY_SENT_' + dateKey);
   return legacy ? { sentAt: legacy, hash: '', total: null } : null;
 }
+
 function getDailyEmailStatus_(dateKey) {
   const record = readDailyEmailRecord_(dateKey);
   if (!record) return { sent: false, dirty: false, sentAt: '', total: null };
   const closedDay = getClosedDay_(dateKey);
-  const current = dailySnapshotHash_(dateKey, closedDay.closed ? [] : getBookingsForDate_(dateKey), closedDay.closed);
-  return { sent: true, dirty: record.hash !== current, sentAt: record.sentAt || '', total: record.total };
+  const currentLunch = closedDay.closed ? [] : getBookingsForDate_(dateKey, APP.MEAL_TYPES.LUNCH);
+  const currentHash = dailySnapshotHash_(dateKey, currentLunch, closedDay.closed);
+  return {
+    sent: true,
+    dirty: record.hash !== currentHash,
+    sentAt: record.sentAt || '',
+    total: record.total,
+  };
 }
 
-function dailySnapshotHash_(dateKey, booked, closed) {
-  const payload = JSON.stringify({ dateKey, closed: Boolean(closed), booked: booked.map(item => item.memberId).sort() });
+/**
+ * Hash chỉ dựa trên ngày, trạng thái ngày nghỉ và danh sách ID thành viên đặt LUNCH.
+ * Sửa DINNER tuyệt đối không làm đổi hash này.
+ */
+function dailySnapshotHash_(dateKey, bookedLunch, closed) {
+  const payload = JSON.stringify({
+    dateKey,
+    closed: Boolean(closed),
+    booked: (bookedLunch || []).map(item => item.memberId).sort(),
+  });
   const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, payload, Utilities.Charset.UTF_8);
   return Utilities.base64Encode(digest);
 }
+
 function sendPreviousMonthSummaryIfNeeded_(now) {
   const monthKey = previousMonthKey_(now);
   const props = PropertiesService.getScriptProperties();
@@ -509,24 +811,118 @@ function sendPreviousMonthSummaryIfNeeded_(now) {
   props.setProperty('MONTHLY_SENT_' + monthKey, new Date().toISOString());
 }
 
+/**
+ * Gửi email tổng kết tháng: Tách rõ Trưa, Tối, Tổng.
+ */
 function sendMonthlySummary_(monthKey, manual) {
-  const normalizedMonth = normalizeMonthKey_(monthKey);
-  const members = getMembers_(true);
-  const counts = {};
-  members.forEach(member => { counts[member.id] = 0; });
-  const states = getFinalBookingStateMap_(normalizedMonth);
-  const closedDays = getClosedDayMap_(normalizedMonth);
-  Object.keys(states).forEach(key => {
-    const state = states[key];
-    if (state.status === 'BOOKED' && !closedDays[state.dateKey] && state.memberId in counts) counts[state.memberId]++;
+  const summary = getMonthlySummary_(monthKey);
+  const subject = `📊 Tổng hợp suất ăn ${summary.monthLabel} — ${summary.total} suất`;
+  const textRows = summary.rows.map((row, i) =>
+    `${i + 1}. ${row.name}: ${row.total} suất (Trưa: ${row.lunch}, Tối: ${row.dinner})`
+  ).join('\n');
+  const body = [
+    `TỔNG HỢP SUẤT ĂN ${summary.monthLabel.toUpperCase()}`,
+    '',
+    `Tổng số suất: ${summary.total} suất`,
+    `- Cơm trưa: ${summary.totalLunch} suất`,
+    `- Cơm tối: ${summary.totalDinner} suất`,
+    '',
+    textRows || 'Chưa có dữ liệu.',
+    manual ? '\n(Email được gửi thủ công từ Apps Script)' : '',
+  ].join('\n');
+
+  MailApp.sendEmail({
+    to: getConfig_('ADMIN_EMAIL', APP.ADMIN_EMAIL),
+    subject,
+    body,
+    htmlBody: buildMonthlyEmailHtml_(summary),
+    name: 'Báo cơm trưa',
   });
-  const rows = members.map(member => ({ name: member.name, total: counts[member.id] || 0 })).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'vi'));
-  const grandTotal = rows.reduce((sum, row) => sum + row.total, 0);
-  const textRows = rows.map((row, i) => `${i + 1}. ${row.name}: ${row.total} suất`).join('\n');
-  const subject = `📊 Tổng hợp suất ăn ${monthDisplay_(normalizedMonth)} — ${grandTotal} suất`;
-  const body = [`TỔNG HỢP SUẤT ĂN ${monthDisplay_(normalizedMonth)}`, '', textRows || 'Chưa có dữ liệu.', '', `TỔNG CỘNG: ${grandTotal} suất`, manual ? '\n(Email được gửi thủ công từ Apps Script)' : ''].join('\n');
-  MailApp.sendEmail({ to: getConfig_('ADMIN_EMAIL', APP.ADMIN_EMAIL), subject, body, htmlBody: buildMonthlyEmailHtml_(normalizedMonth, rows, grandTotal), name: 'Báo cơm trưa' });
 }
+
+/**
+ * Hash toàn bộ suất ăn của ngày (cả Trưa và Tối) dùng để đối soát.
+ */
+function dailyReconciliationHash_(dateKey) {
+  const states = getFinalBookingStateForDate_(dateKey);
+  const closed = isClosedDay_(dateKey);
+  const bookedItems = Object.keys(states)
+    .sort()
+    .filter(k => states[k].status === APP.MEAL_STATES.BOOKED)
+    .map(k => `${states[k].memberId}:${states[k].mealType}`);
+
+  const payload = JSON.stringify({
+    dateKey,
+    closed,
+    booked: bookedItems,
+  });
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, payload, Utilities.Charset.UTF_8);
+  return Utilities.base64Encode(digest);
+}
+
+function getDailyReconciliation_(dateKey) {
+  try {
+    const sh = getSheet_(APP.SHEETS.RECONCILIATION);
+    const lastRow = sh.getLastRow();
+    if (lastRow < 2) return { status: APP.RECONCILIATION_STATES.OPEN, reconciledBy: '', reconciledAt: '', note: '' };
+
+    const rows = sh.getRange(2, 1, lastRow - 1, 6).getValues();
+    let latest = null;
+    for (let i = 0; i < rows.length; i++) {
+      if (normalizeDateCell_(rows[i][0]) === dateKey) {
+        latest = rows[i];
+      }
+    }
+    if (!latest) return { status: APP.RECONCILIATION_STATES.OPEN, reconciledBy: '', reconciledAt: '', note: '' };
+
+    const status = String(latest[1] || APP.RECONCILIATION_STATES.OPEN).toUpperCase();
+    const reconciledBy = String(latest[2] || '');
+    const reconciledAt = formatDateTime_(latest[3]);
+    const note = String(latest[4] || '');
+    const storedHash = String(latest[5] || '');
+
+    if (status === APP.RECONCILIATION_STATES.RECONCILED) {
+      const currentHash = dailyReconciliationHash_(dateKey);
+      if (storedHash && storedHash !== currentHash) {
+        return {
+          status: APP.RECONCILIATION_STATES.NEEDS_REVIEW,
+          reconciledBy,
+          reconciledAt,
+          note,
+          changed: true,
+        };
+      }
+    }
+
+    return {
+      status,
+      reconciledBy,
+      reconciledAt,
+      note,
+      changed: false,
+    };
+  } catch (error) {
+    return { status: APP.RECONCILIATION_STATES.OPEN, reconciledBy: '', reconciledAt: '', note: '' };
+  }
+}
+
+function adminReconcileDay_(dateKey, note) {
+  const sh = getSheet_(APP.SHEETS.RECONCILIATION);
+  const now = new Date();
+  const hash = dailyReconciliationHash_(dateKey);
+  const email = getAdminEmail_();
+  sh.appendRow([dateKey, APP.RECONCILIATION_STATES.RECONCILED, email, now, String(note || '').trim(), hash]);
+  appendAudit_(dateKey, { id: '', name: '' }, '', 'ADMIN_RECONCILE_DAY', 'ADMIN', note || '', now);
+}
+
+function adminReopenReconciliation_(dateKey) {
+  const sh = getSheet_(APP.SHEETS.RECONCILIATION);
+  const now = new Date();
+  const email = getAdminEmail_();
+  sh.appendRow([dateKey, APP.RECONCILIATION_STATES.OPEN, email, now, '', '']);
+  appendAudit_(dateKey, { id: '', name: '' }, '', 'ADMIN_REOPEN_RECONCILIATION', 'ADMIN', '', now);
+}
+
 /* =========================
    Helpers
 ========================= */
@@ -550,33 +946,57 @@ function getMembers_(includeInactive) {
     .sort(memberDisplayOrder_);
 }
 
-function getMemberById_(memberId) {
-  return getMembers_().find(m => m.id === String(memberId || '')) || null;
+function getMemberById_(memberId, includeInactive) {
+  return getMembers_(Boolean(includeInactive)).find(m => m.id === String(memberId || '')) || null;
 }
 
-function getBookingsForDate_(dateKey) {
+function getBookingsForDate_(dateKey, mealType) {
+  const targetMeal = normalizeMealType_(mealType || APP.MEAL_TYPES.LUNCH);
   if (isClosedDay_(dateKey)) return [];
   const states = getFinalBookingStateForDate_(dateKey);
-  return Object.keys(states).map(memberId => states[memberId])
-    .filter(row => row.status === 'BOOKED')
-    .map(row => ({ rowNumber: row.rowNumber, dateKey: row.dateKey, memberId: row.memberId, name: row.name, status: row.status, updatedAt: row.updatedAt, updatedAtDisplay: formatTime_(row.updatedAt) }))
+  return Object.keys(states)
+    .map(key => states[key])
+    .filter(row => row.mealType === targetMeal && row.status === APP.MEAL_STATES.BOOKED)
+    .map(row => ({
+      rowNumber: row.rowNumber,
+      dateKey: row.dateKey,
+      memberId: row.memberId,
+      name: row.name,
+      mealType: row.mealType,
+      status: row.status,
+      updatedAt: row.updatedAt,
+      updatedAtDisplay: formatTime_(row.updatedAt),
+    }))
     .sort((a, b) => (a.updatedAt instanceof Date ? a.updatedAt.getTime() : 0) - (b.updatedAt instanceof Date ? b.updatedAt.getTime() : 0));
 }
 
-function findBookingRow_(sh, dateKey, memberId) {
+function findBookingRow_(sh, dateKey, memberId, mealType) {
   const lastRow = sh.getLastRow();
   if (lastRow < 2) return { rowNumber: null };
-  const values = sh.getRange(2, 1, lastRow - 1, 5).getValues();
+  const targetMeal = normalizeMealType_(mealType);
+  const numCols = Math.max(5, Math.min(6, sh.getLastColumn()));
+  const values = sh.getRange(2, 1, lastRow - 1, numCols).getValues();
   let latest = null;
+
   for (let i = 0; i < values.length; i++) {
-    if (normalizeDateCell_(values[i][0]) === dateKey && String(values[i][1] || '') === String(memberId)) latest = { rowNumber: i + 2, values: values[i] };
+    const row = values[i];
+    const rowDate = normalizeDateCell_(row[0]);
+    const rowMemberId = String(row[1] || '').trim();
+    const rowMeal = numCols >= 6 ? normalizeMealType_(row[3]) : APP.MEAL_TYPES.LUNCH;
+
+    if (rowDate === dateKey && rowMemberId === String(memberId) && rowMeal === targetMeal) {
+      latest = { rowNumber: i + 2, values: row };
+    }
   }
   return latest || { rowNumber: null };
 }
 
 /**
- * Mỗi ngày làm việc, ghi một suất cho các thành viên đã bật tự động.
- * Chỉ chạy một lần/ngày, trước giờ chốt và không ghi đè thao tác thủ công.
+ * Tự động báo cơm trưa ngày làm việc cho thành viên bật tự động.
+ * QUY TẮC QUAN TRỌNG:
+ * - Chỉ tạo suất LUNCH.
+ * - Nếu thành viên đã có trạng thái DINNER trong ngày nhưng CHƯA có trạng thái LUNCH,
+ *   thì hệ thống VẪN TỰ ĐỘNG BÁO LUNCH bình thường.
  */
 function autoBookWeekdayIfNeeded_(now) {
   if (isWeekend_(now) || isLocked_(now)) return;
@@ -593,27 +1013,25 @@ function autoBookWeekdayIfNeeded_(now) {
     if (props.getProperty(propertyKey)) return;
 
     const members = getMembers_().filter(member => member.autoBook);
-    // Chưa có ai bật thì để lượt tick tiếp theo xử lý, phòng trường hợp vừa bật trong ngày.
     if (!members.length) return;
-    const bookings = getSheet_(APP.SHEETS.BOOKINGS);
-    const existingMemberIds = new Set();
-    const lastRow = bookings.getLastRow();
-    if (lastRow >= 2) {
-      bookings.getRange(2, 1, lastRow - 1, 5).getValues().forEach(row => {
-        if (normalizeDateCell_(row[0]) === dateKey) existingMemberIds.add(String(row[1] || ''));
-      });
-    }
+
+    const existingLunchMemberIds = new Set();
+    getBookingRows_().forEach(row => {
+      if (row.dateKey === dateKey && row.mealType === APP.MEAL_TYPES.LUNCH) {
+        existingLunchMemberIds.add(row.memberId);
+      }
+    });
 
     const rowsToAdd = members
-      .filter(member => !existingMemberIds.has(member.id))
-      .map(member => [dateKey, member.id, member.name, 'BOOKED', now]);
+      .filter(member => !existingLunchMemberIds.has(member.id))
+      .map(member => [dateKey, member.id, member.name, APP.MEAL_TYPES.LUNCH, APP.MEAL_STATES.BOOKED, now]);
 
     if (rowsToAdd.length) {
-      bookings.getRange(bookings.getLastRow() + 1, 1, rowsToAdd.length, 5).setValues(rowsToAdd);
-      rowsToAdd.forEach(row => appendAudit_(dateKey, { id: row[1], name: row[2] }, 'BOOK_AUTO', 'AUTO', '', now));
+      const bookings = getSheet_(APP.SHEETS.BOOKINGS);
+      bookings.getRange(bookings.getLastRow() + 1, 1, rowsToAdd.length, 6).setValues(rowsToAdd);
+      rowsToAdd.forEach(row => appendAudit_(dateKey, { id: row[1], name: row[2] }, APP.MEAL_TYPES.LUNCH, 'BOOK_AUTO', 'AUTO', '', now));
     }
 
-    // Đánh dấu cả khi chưa có ai bật tự động để không chạy lại nhiều lần trong ngày.
     props.setProperty(propertyKey, new Date().toISOString());
   } finally {
     lock.releaseLock();
@@ -700,10 +1118,13 @@ function formatSheets_(ss) {
   });
 
   const booking = ss.getSheetByName(APP.SHEETS.BOOKINGS);
-  if (booking) booking.getRange('E:E').setNumberFormat('dd/MM/yyyy HH:mm:ss');
+  if (booking) booking.getRange('F:F').setNumberFormat('dd/MM/yyyy HH:mm:ss');
 
   const audit = ss.getSheetByName(APP.SHEETS.AUDIT);
   if (audit) audit.getRange('A:A').setNumberFormat('dd/MM/yyyy HH:mm:ss');
+
+  const reconciliation = ss.getSheetByName(APP.SHEETS.RECONCILIATION);
+  if (reconciliation) reconciliation.getRange('D:D').setNumberFormat('dd/MM/yyyy HH:mm:ss');
 }
 
 function getConfig_(key, fallback) {
@@ -852,23 +1273,29 @@ function buildDailyEmailHtml_(now, booked, totalMembers, closedDay) {
   if (closedDay && closedDay.closed) {
     return `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#111827"><h2>🍚 Báo cơm trưa — ${dateDisplay_(now)}</h2><div style="padding:16px;background:#fef3c7;border-radius:10px;font-weight:700">Hôm nay không tổ chức ăn trưa.</div>${closedDay.note ? `<p>Ghi chú: ${escapeHtmlServer_(closedDay.note)}</p>` : ''}</div>`;
   }
-  const rows = booked.length ? booked.map((booking, index) => `<tr><td style="padding:8px;border-bottom:1px solid #eee">${index + 1}</td><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtmlServer_(booking.name)}</td><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtmlServer_(booking.updatedAtDisplay)}</td></tr>`).join('') : `<tr><td colspan="3" style="padding:12px">Không có người báo cơm.</td></tr>`;
-  return `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#111827"><h2 style="margin-bottom:6px">🍚 Báo cơm trưa — ${dateDisplay_(now)}</h2><div style="font-size:30px;font-weight:700;margin:14px 0">${booked.length} suất</div><div style="color:#6B7280;margin-bottom:14px">Danh sách: ${booked.length}/${totalMembers} người</div><table style="width:100%;border-collapse:collapse"><thead><tr><th align="left">#</th><th align="left">Họ tên</th><th align="left">Báo lúc</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  const rows = booked.length
+    ? booked.map((booking, index) => `<tr><td style="padding:8px;border-bottom:1px solid #eee">${index + 1}</td><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtmlServer_(booking.name)}</td><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtmlServer_(booking.updatedAtDisplay)}</td></tr>`).join('')
+    : `<tr><td colspan="3" style="padding:12px">Không có người báo cơm trưa.</td></tr>`;
+  return `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#111827"><h2 style="margin-bottom:6px">🍚 Báo cơm trưa — ${dateDisplay_(now)}</h2><div style="font-size:30px;font-weight:700;margin:14px 0">${booked.length} suất</div><div style="color:#6B7280;margin-bottom:14px">Danh sách trưa: ${booked.length}/${totalMembers} người</div><table style="width:100%;border-collapse:collapse"><thead><tr><th align="left">#</th><th align="left">Họ tên</th><th align="left">Báo lúc</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
-function buildMonthlyEmailHtml_(monthKey, rows, grandTotal) {
-  const htmlRows = rows.map((r, i) => `
+
+function buildMonthlyEmailHtml_(summary) {
+  const htmlRows = summary.rows.map((r, i) => `
     <tr>
       <td style="padding:8px;border-bottom:1px solid #eee">${i + 1}</td>
       <td style="padding:8px;border-bottom:1px solid #eee">${escapeHtmlServer_(r.name)}</td>
-      <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${r.total}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${r.lunch}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${r.dinner}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;text-align:right;font-weight:bold">${r.total}</td>
     </tr>`).join('');
 
   return `
   <div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#111827">
-    <h2>📊 Tổng hợp suất ăn ${monthDisplay_(monthKey)}</h2>
-    <div style="font-size:28px;font-weight:700;margin:14px 0">${grandTotal} suất</div>
+    <h2>📊 Tổng hợp suất ăn ${summary.monthLabel}</h2>
+    <div style="font-size:28px;font-weight:700;margin:14px 0">${summary.total} suất</div>
+    <div style="color:#6B7280;margin-bottom:14px">Trong đó: Trưa ${summary.totalLunch} suất · Tối ${summary.totalDinner} suất</div>
     <table style="width:100%;border-collapse:collapse">
-      <thead><tr><th align="left">#</th><th align="left">Họ tên</th><th align="right">Số suất</th></tr></thead>
+      <thead><tr><th align="left">#</th><th align="left">Họ tên</th><th align="right">Trưa</th><th align="right">Tối</th><th align="right">Tổng</th></tr></thead>
       <tbody>${htmlRows}</tbody>
     </table>
   </div>`;
