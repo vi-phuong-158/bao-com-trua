@@ -33,32 +33,68 @@ function normalizeMealType(value) {
   return MEAL_TYPES.LUNCH;
 }
 
+function normalizeDateCell(value) {
+  if (!value) return '';
+  if (value instanceof Date) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(value).trim();
+  const isoMatch = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
+  }
+  const dmyMatch = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (dmyMatch) {
+    return `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}-${dmyMatch[1].padStart(2, '0')}`;
+  }
+  return s.slice(0, 10);
+}
+
 /**
  * Parses raw row from CHAM_COM sheet:
  * Supports 5-column legacy (NGAY, MEMBER_ID, HO_TEN, TRANG_THAI, CAP_NHAT_LUC)
- * and 6-column current (NGAY, MEMBER_ID, HO_TEN, LOAI_BUA, TRANG_THAI, CAP_NHAT_LUC).
+ * and 6-column current (NGAY, MEMBER_ID, HO_TEN, LOAI_BUA, TRANG_THAI, CAP_NHAT_LUC),
+ * even if the sheet returns 6 columns on a legacy 5-column row!
  */
 function parseBookingRow(cols, rowIndex = 2) {
-  if (cols.length >= 6) {
-    return {
-      rowNumber: rowIndex,
-      dateKey: String(cols[0] || '').trim(),
-      memberId: String(cols[1] || '').trim(),
-      name: String(cols[2] || '').trim(),
-      mealType: normalizeMealType(cols[3]),
-      status: String(cols[4] || '').trim().toUpperCase(),
-      updatedAt: cols[5] || null,
-    };
+  const col3 = String(cols[3] || '').trim().toUpperCase();
+  const col4 = String(cols[4] || '').trim().toUpperCase();
+
+  let mealType = MEAL_TYPES.LUNCH;
+  let status = '';
+  let updatedAt = cols[4];
+
+  if (['BOOKED', 'CANCELLED', 'CLEARED'].includes(col3)) {
+    // 5-column legacy format: cols[3] is TRANG_THAI
+    mealType = MEAL_TYPES.LUNCH;
+    status = col3;
+    updatedAt = cols[4];
+  } else if (['BOOKED', 'CANCELLED', 'CLEARED'].includes(col4)) {
+    // 6-column format: cols[3] is LOAI_BUA, cols[4] is TRANG_THAI
+    mealType = normalizeMealType(col3);
+    status = col4;
+    updatedAt = cols[5];
+  } else if (['DINNER', 'TOI', 'COM_TOI', 'TỐI'].includes(col3)) {
+    mealType = MEAL_TYPES.DINNER;
+    status = col4;
+    updatedAt = cols[5];
+  } else {
+    mealType = MEAL_TYPES.LUNCH;
+    status = col3 || col4;
+    updatedAt = cols[4];
   }
-  // Legacy 5 columns
+
   return {
     rowNumber: rowIndex,
-    dateKey: String(cols[0] || '').trim(),
+    dateKey: normalizeDateCell(cols[0]),
     memberId: String(cols[1] || '').trim(),
     name: String(cols[2] || '').trim(),
-    mealType: MEAL_TYPES.LUNCH,
-    status: String(cols[3] || '').trim().toUpperCase(),
-    updatedAt: cols[4] || null,
+    mealType,
+    status,
+    updatedAt,
   };
 }
 
@@ -750,4 +786,58 @@ test('56. Security Closure: normal public Web App request serves User Index view
   const result = simulateDoGet({});
   assert.equal(result.view, 'INDEX');
   assert.equal(result.blocked, false);
+});
+
+// 12. Robust Parsing & Zero-Data Loss Regression Tests
+test('57. Data Loss Regression: legacy 5-column row with 6 columns reported does NOT corrupt status to timestamp', () => {
+  const legacyTimestamp = new Date('2026-09-03T07:30:00Z');
+  const rowFromSheetWith6Cols = ['2026-09-03', 'm1', 'Nguyễn Văn A', 'BOOKED', legacyTimestamp, ''];
+  const parsed = parseBookingRow(rowFromSheetWith6Cols);
+  assert.equal(parsed.status, 'BOOKED');
+  assert.equal(parsed.mealType, 'LUNCH');
+  assert.equal(parsed.memberId, 'm1');
+  assert.equal(parsed.updatedAt, legacyTimestamp);
+});
+
+test('58. Date Normalization: handles Date object, yyyy-MM-dd, and dd/MM/yyyy strings', () => {
+  const dObj = new Date(2026, 8, 3, 12, 0, 0); // Sep 3, 2026
+  assert.equal(normalizeDateCell(dObj), '2026-09-03');
+  assert.equal(normalizeDateCell('2026-09-03'), '2026-09-03');
+  assert.equal(normalizeDateCell('2026-09-03T07:15:00.000Z'), '2026-09-03');
+  assert.equal(normalizeDateCell('03/09/2026'), '2026-09-03');
+  assert.equal(normalizeDateCell('3/9/2026'), '2026-09-03');
+  assert.equal(normalizeDateCell('03-09-2026'), '2026-09-03');
+});
+
+test('59. Mixed Dataset: parses both unmigrated 5-col and migrated 6-col rows seamlessly', () => {
+  const mixedRows = [
+    // Legacy 5-column row
+    ['2026-09-03', 'm1', 'Người Một', 'BOOKED', '2026-09-03 07:10:00'],
+    // Legacy 5-column row with cancelled
+    ['2026-09-03', 'm2', 'Người Hai', 'CANCELLED', '2026-09-03 07:12:00'],
+    // New 6-column lunch row
+    ['2026-09-03', 'm3', 'Người Ba', 'LUNCH', 'BOOKED', '2026-09-03 07:20:00'],
+    // New 6-column dinner row
+    ['2026-09-03', 'm1', 'Người Một', 'DINNER', 'BOOKED', '2026-09-03 16:00:00'],
+  ];
+
+  const states = finalBookingStates(mixedRows);
+  assert.equal(states.get('2026-09-03|m1|LUNCH').status, 'BOOKED');
+  assert.equal(states.get('2026-09-03|m1|DINNER').status, 'BOOKED');
+  assert.equal(states.get('2026-09-03|m2|LUNCH').status, 'CANCELLED');
+  assert.equal(states.get('2026-09-03|m3|LUNCH').status, 'BOOKED');
+});
+
+test('60. Monthly Summary: correctly tallies mixed unmigrated and migrated rows', () => {
+  const mixedRows = [
+    ['2026-09-01', 'm1', 'Người Một', 'BOOKED', 'ts1'],
+    ['2026-09-02', 'm1', 'Người Một', 'BOOKED', 'ts2'],
+    ['2026-09-02', 'm1', 'Người Một', 'DINNER', 'BOOKED', 'ts3'],
+    ['2026-09-03', 'm2', 'Người Hai', 'LUNCH', 'BOOKED', 'ts4'],
+  ];
+
+  const summary = calculateMonthlySummary(mixedRows, '2026-09');
+  assert.equal(summary.totalLunch, 3);
+  assert.equal(summary.totalDinner, 1);
+  assert.equal(summary.total, 4);
 });

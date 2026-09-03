@@ -141,11 +141,15 @@ function migrateBookingsSheet_(ss) {
     return;
   }
 
+  // Kiểm tra ô mẫu dòng 2 cột 4 (nếu có dữ liệu) để xác định xem cột 4 có phải là TRANG_THAI cũ không
+  const sampleRow2Col4 = lastRow >= 2 ? String(sh.getRange(2, 4).getValue() || '').trim().toUpperCase() : '';
   const currentHeaders = sh.getRange(1, 1, 1, Math.max(lastCol, 1)).getValues()[0].map(h => String(h || '').trim().toUpperCase());
-  const mealTypeIndex = currentHeaders.indexOf('LOAI_BUA');
+  const mealTypeHeaderIndex = currentHeaders.indexOf('LOAI_BUA');
 
-  if (mealTypeIndex === -1) {
-    // Schema cũ 5 cột: NGAY (1), MEMBER_ID (2), HO_TEN (3), TRANG_THAI (4), CAP_NHAT_LUC (5)
+  const needsInsert = (mealTypeHeaderIndex === -1) || ['BOOKED', 'CANCELLED', 'CLEARED'].includes(sampleRow2Col4);
+
+  if (needsInsert) {
+    // Schema cũ: NGAY (1), MEMBER_ID (2), HO_TEN (3), TRANG_THAI (4), CAP_NHAT_LUC (5)
     // Chèn cột LOAI_BUA vào sau cột HO_TEN (vị trí cột 4)
     sh.insertColumnAfter(3);
     sh.getRange(1, 4).setValue('LOAI_BUA');
@@ -159,7 +163,7 @@ function migrateBookingsSheet_(ss) {
   } else {
     // Cột đã tồn tại, kiểm tra và điền 'LUNCH' cho các ô trống
     if (lastRow >= 2) {
-      const colNum = mealTypeIndex + 1;
+      const colNum = (mealTypeHeaderIndex !== -1 ? mealTypeHeaderIndex : 3) + 1;
       const values = sh.getRange(2, colNum, lastRow - 1, 1).getValues();
       let changed = false;
       for (let i = 0; i < values.length; i++) {
@@ -195,11 +199,14 @@ function migrateAuditSheet_(ss) {
     return;
   }
 
+  const sampleRow2Col5 = lastRow >= 2 ? String(sh.getRange(2, 5).getValue() || '').trim().toUpperCase() : '';
   const currentHeaders = sh.getRange(1, 1, 1, Math.max(lastCol, 1)).getValues()[0].map(h => String(h || '').trim().toUpperCase());
-  const mealTypeIndex = currentHeaders.indexOf('LOAI_BUA');
+  const mealTypeHeaderIndex = currentHeaders.indexOf('LOAI_BUA');
 
-  if (mealTypeIndex === -1) {
-    // Schema cũ 7 cột: THOI_GIAN, NGAY, MEMBER_ID, HO_TEN, HANH_DONG, NGUON, GHI_CHU
+  const isOldAction = sampleRow2Col5.startsWith('USER_') || sampleRow2Col5.startsWith('ADMIN_') || sampleRow2Col5.startsWith('BOOK_');
+  const needsInsert = (mealTypeHeaderIndex === -1) || isOldAction;
+
+  if (needsInsert) {
     // Chèn LOAI_BUA sau HO_TEN (vị trí cột 5)
     sh.insertColumnAfter(4);
     sh.getRange(1, 5).setValue('LOAI_BUA');
@@ -212,7 +219,7 @@ function migrateAuditSheet_(ss) {
     }
   } else {
     if (lastRow >= 2) {
-      const colNum = mealTypeIndex + 1;
+      const colNum = (mealTypeHeaderIndex !== -1 ? mealTypeHeaderIndex : 4) + 1;
       const values = sh.getRange(2, colNum, lastRow - 1, 1).getValues();
       let changed = false;
       for (let i = 0; i < values.length; i++) {
@@ -503,14 +510,39 @@ function getBookingRows_() {
   const sh = getSheet_(APP.SHEETS.BOOKINGS);
   const lastRow = sh.getLastRow();
   if (lastRow < 2) return [];
-  const numCols = Math.max(5, Math.min(6, sh.getLastColumn()));
-  const rawValues = sh.getRange(2, 1, lastRow - 1, numCols).getValues();
+
+  const maxCol = Math.max(sh.getLastColumn(), 6);
+  const rawValues = sh.getRange(2, 1, lastRow - 1, maxCol).getValues();
 
   return rawValues.map((row, index) => {
-    const hasMealCol = numCols >= 6;
-    const mealType = hasMealCol ? normalizeMealType_(row[3]) : APP.MEAL_TYPES.LUNCH;
-    const status = String(hasMealCol ? row[4] : row[3] || '').trim().toUpperCase();
-    const updatedAt = hasMealCol ? row[5] : row[4];
+    const col3 = String(row[3] || '').trim().toUpperCase();
+    const col4 = String(row[4] || '').trim().toUpperCase();
+
+    let mealType = APP.MEAL_TYPES.LUNCH;
+    let status = '';
+    let updatedAt = row[4];
+
+    // Xác định thông minh theo giá trị thực tế của từng dòng để tương thích 100% cả sheet 5 cột và 6 cột:
+    if (['BOOKED', 'CANCELLED', 'CLEARED'].includes(col3)) {
+      // Dòng 5 cột chuẩn: cột D (index 3) là TRANG_THAI, cột E (index 4) là CAP_NHAT_LUC
+      mealType = APP.MEAL_TYPES.LUNCH;
+      status = col3;
+      updatedAt = row[4];
+    } else if (['BOOKED', 'CANCELLED', 'CLEARED'].includes(col4)) {
+      // Dòng 6 cột: cột D (index 3) là LOAI_BUA, cột E (index 4) là TRANG_THAI, cột F (index 5) là CAP_NHAT_LUC
+      mealType = normalizeMealType_(col3);
+      status = col4;
+      updatedAt = row[5];
+    } else if (['DINNER', 'TOI', 'COM_TOI', 'TỐI'].includes(col3)) {
+      mealType = APP.MEAL_TYPES.DINNER;
+      status = col4;
+      updatedAt = row[5];
+    } else {
+      // Fallback an toàn: nếu col3 có giá trị thì là status 5 cột, nếu không lấy col4
+      mealType = APP.MEAL_TYPES.LUNCH;
+      status = col3 || col4;
+      updatedAt = row[4];
+    }
 
     return {
       rowNumber: index + 2,
@@ -963,15 +995,28 @@ function findBookingRow_(sh, dateKey, memberId, mealType) {
   const lastRow = sh.getLastRow();
   if (lastRow < 2) return { rowNumber: null };
   const targetMeal = normalizeMealType_(mealType);
-  const numCols = Math.max(5, Math.min(6, sh.getLastColumn()));
-  const values = sh.getRange(2, 1, lastRow - 1, numCols).getValues();
+  const maxCol = Math.max(sh.getLastColumn(), 6);
+  const values = sh.getRange(2, 1, lastRow - 1, maxCol).getValues();
   let latest = null;
 
   for (let i = 0; i < values.length; i++) {
     const row = values[i];
     const rowDate = normalizeDateCell_(row[0]);
     const rowMemberId = String(row[1] || '').trim();
-    const rowMeal = numCols >= 6 ? normalizeMealType_(row[3]) : APP.MEAL_TYPES.LUNCH;
+
+    const col3 = String(row[3] || '').trim().toUpperCase();
+    const col4 = String(row[4] || '').trim().toUpperCase();
+
+    let rowMeal = APP.MEAL_TYPES.LUNCH;
+    if (['BOOKED', 'CANCELLED', 'CLEARED'].includes(col3)) {
+      rowMeal = APP.MEAL_TYPES.LUNCH;
+    } else if (['BOOKED', 'CANCELLED', 'CLEARED'].includes(col4)) {
+      rowMeal = normalizeMealType_(col3);
+    } else if (['DINNER', 'TOI', 'COM_TOI', 'TỐI'].includes(col3)) {
+      rowMeal = APP.MEAL_TYPES.DINNER;
+    } else {
+      rowMeal = APP.MEAL_TYPES.LUNCH;
+    }
 
     if (rowDate === dateKey && rowMemberId === String(memberId) && rowMeal === targetMeal) {
       latest = { rowNumber: i + 2, values: row };
@@ -1224,8 +1269,18 @@ function formatDateTime_(value) {
 }
 
 function normalizeDateCell_(value) {
+  if (!value) return '';
   if (value instanceof Date) return Utilities.formatDate(value, APP.TZ, 'yyyy-MM-dd');
-  return String(value || '').slice(0, 10);
+  const s = String(value).trim();
+  const isoMatch = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
+  }
+  const dmyMatch = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (dmyMatch) {
+    return `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}-${dmyMatch[1].padStart(2, '0')}`;
+  }
+  return s.slice(0, 10);
 }
 
 function normalizeMonthKey_(value) {
