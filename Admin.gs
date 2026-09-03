@@ -47,7 +47,9 @@ function onOpen() {
 
 function showAdminDashboard() {
   assertAdmin_();
-  const html = HtmlService.createTemplateFromFile('AdminDashboard')
+  const template = HtmlService.createTemplateFromFile('AdminDashboard');
+  template.isWebApp = false;
+  const html = template
     .evaluate()
     .setTitle(ADMIN_DASHBOARD.TITLE)
     .setWidth(1240)
@@ -329,7 +331,7 @@ function assertAdmin_() {
   const activeEmail = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
   const adminEmails = getAdminEmails_();
   if (!activeEmail || !adminEmails.includes(activeEmail)) {
-    throw new Error('Không có quyền quản trị. Tài khoản được phép: ' + adminEmails.join(', ') + '.');
+    throw new Error('Không có quyền quản trị.');
   }
 }
 

@@ -80,17 +80,15 @@ const APP = {
 function doGet(e) {
   const pathInfo = String((e && e.pathInfo) || '').split('/').filter(Boolean).join('/');
   const isAdminParam = String((e && e.parameter && e.parameter.admin) || '') === '1';
+  const isAdmin = pathInfo === 'admin' || isAdminParam;
 
-  // Security closure: Admin Dashboard chỉ chạy trực tiếp trong Google Sheet, đóng hoàn toàn route /admin và ?admin=1 công khai
-  if (pathInfo === 'admin' || isAdminParam) {
-    return HtmlService.createHtmlOutput(
-      '<div style="font-family:sans-serif;max-width:520px;margin:48px auto;padding:24px;border:1px solid #fed7aa;background:#fff7ed;border-radius:14px;text-align:center;color:#9a3412;box-shadow:0 4px 14px rgba(0,0,0,0.06);">' +
-      '<h2 style="margin-top:0;font-size:20px;">🔒 Đã đóng truy cập Quản trị công khai</h2>' +
-      '<p style="color:#374151;font-size:14px;line-height:1.6;">Để bảo đảm an toàn dữ liệu, Admin Dashboard <strong>chỉ hoạt động trực tiếp bên trong Google Sheet</strong>.</p>' +
-      '<p style="color:#6b7280;font-size:13px;margin-top:12px;">Vui lòng mở Google Sheet và chọn menu <strong>🍚 Quản trị suất ăn → Mở Admin Dashboard</strong> bằng tài khoản quản trị được cấp quyền (' +
-      APP.ADMIN_EMAILS.join(', ') + ').</p>' +
-      '</div>'
-    ).setTitle('Quản trị suất ăn');
+  if (isAdmin) {
+    try {
+      assertAdmin_();
+      return renderAdminWebApp_();
+    } catch (err) {
+      return renderUnauthorizedAdminPage_();
+    }
   }
 
   return HtmlService.createTemplateFromFile('Index')
@@ -98,6 +96,41 @@ function doGet(e) {
     .setTitle('Báo cơm trưa')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function renderAdminWebApp_() {
+  const template = HtmlService.createTemplateFromFile('AdminDashboard');
+  template.isWebApp = true;
+  const title = (typeof ADMIN_DASHBOARD !== 'undefined' && ADMIN_DASHBOARD.TITLE) ? ADMIN_DASHBOARD.TITLE : 'Quản trị suất ăn';
+  return template
+    .evaluate()
+    .setTitle(title)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function renderUnauthorizedAdminPage_() {
+  return HtmlService.createHtmlOutput(
+    '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' +
+    '<title>Truy cập bị từ chối</title>' +
+    '<style>' +
+    'body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f9fafb; color: #1f2937; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; box-sizing: border-box; }' +
+    '.card { max-width: 480px; width: 100%; background: #ffffff; border: 1px solid #fee2e2; border-radius: 16px; padding: 36px 28px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }' +
+    '.icon { font-size: 48px; margin-bottom: 16px; }' +
+    'h2 { margin: 0 0 10px; font-size: 20px; color: #991b1b; font-weight: 700; }' +
+    'p { margin: 0 0 16px; font-size: 14px; line-height: 1.6; color: #4b5563; }' +
+    '.sub { font-size: 13px; color: #6b7280; margin-top: 16px; border-top: 1px solid #f3f4f6; padding-top: 16px; }' +
+    '</style></head><body>' +
+    '<div class="card">' +
+    '<div class="icon">🚫</div>' +
+    '<h2>Truy cập bị từ chối</h2>' +
+    '<p>Tài khoản Google hiện tại không có quyền truy cập trang quản trị này.</p>' +
+    '<p class="sub">Vui lòng đăng nhập đúng tài khoản quản trị được phân quyền để tiếp tục.</p>' +
+    '</div></body></html>'
+  ).setTitle('Truy cập bị từ chối')
+   .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
+   .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 /**

@@ -3,6 +3,8 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 
 /* =========================================================================
    Logic models mirroring Code.gs and Admin.gs for local verification
@@ -745,14 +747,21 @@ function resolveAdminEmails(configuredStr, fallbackList = ['vingocphuong.92@gmai
     .filter(Boolean))];
 }
 
-function simulateDoGet(e) {
+function simulateDoGet(e, activeEmail, allowedAdmins = ['vingocphuong.92@gmail.com', 'anmphongandn@gmail.com']) {
   const pathInfo = String((e && e.pathInfo) || '').split('/').filter(Boolean).join('/');
   const isAdminParam = String((e && e.parameter && e.parameter.admin) || '') === '1';
+  const isAdmin = pathInfo === 'admin' || isAdminParam;
 
-  if (pathInfo === 'admin' || isAdminParam) {
-    return { view: 'SECURITY_CLOSED', title: 'Quản trị suất ăn', blocked: true };
+  if (isAdmin) {
+    try {
+      assertAdmin(activeEmail, allowedAdmins);
+      return { view: 'ADMIN_DASHBOARD', title: 'Quản trị suất ăn', authorized: true };
+    } catch (err) {
+      return { view: 'UNAUTHORIZED_PAGE', title: 'Truy cập bị từ chối', authorized: false, exposedEmails: false };
+    }
   }
-  return { view: 'INDEX', title: 'Báo cơm trưa', blocked: false };
+
+  return { view: 'INDEX', title: 'Báo cơm trưa', authorized: true };
 }
 
 test('52. Multi-Admin: preserves both vingocphuong.92@gmail.com and anmphongandn@gmail.com', () => {
@@ -770,22 +779,69 @@ test('53. Multi-Admin: supports custom admin emails configured in CAU_HINH along
   assert.equal(admins.includes('anmphongandn@gmail.com'), true); // Fallback owner preserved
 });
 
-test('54. Security Closure: public route /admin is cleanly blocked', () => {
-  const result = simulateDoGet({ pathInfo: 'admin' });
-  assert.equal(result.view, 'SECURITY_CLOSED');
-  assert.equal(result.blocked, true);
-});
-
-test('55. Security Closure: public parameter ?admin=1 is cleanly blocked', () => {
-  const result = simulateDoGet({ parameter: { admin: '1' } });
-  assert.equal(result.view, 'SECURITY_CLOSED');
-  assert.equal(result.blocked, true);
-});
-
-test('56. Security Closure: normal public Web App request serves User Index view', () => {
-  const result = simulateDoGet({});
+test('54. Guarded Admin Route: normal public doGet renders Index without login', () => {
+  const result = simulateDoGet({}, '');
   assert.equal(result.view, 'INDEX');
-  assert.equal(result.blocked, false);
+  assert.equal(result.title, 'Báo cơm trưa');
+});
+
+test('55. Guarded Admin Route: admin route without active email (anonymous) is denied', () => {
+  const byPath = simulateDoGet({ pathInfo: 'admin' }, '');
+  assert.equal(byPath.view, 'UNAUTHORIZED_PAGE');
+  assert.equal(byPath.authorized, false);
+
+  const byParam = simulateDoGet({ parameter: { admin: '1' } }, '');
+  assert.equal(byParam.view, 'UNAUTHORIZED_PAGE');
+  assert.equal(byParam.authorized, false);
+});
+
+test('56. Guarded Admin Route: admin route with vingocphuong.92@gmail.com renders AdminDashboard', () => {
+  const result = simulateDoGet({ parameter: { admin: '1' } }, 'vingocphuong.92@gmail.com');
+  assert.equal(result.view, 'ADMIN_DASHBOARD');
+  assert.equal(result.authorized, true);
+});
+
+test('56b. Guarded Admin Route: admin route with anmphongandn@gmail.com renders AdminDashboard', () => {
+  const result = simulateDoGet({ parameter: { admin: '1' } }, 'anmphongandn@gmail.com');
+  assert.equal(result.view, 'ADMIN_DASHBOARD');
+  assert.equal(result.authorized, true);
+});
+
+test('56c. Guarded Admin Route: unauthorized email is denied with UNAUTHORIZED_PAGE', () => {
+  const result = simulateDoGet({ parameter: { admin: '1' } }, 'intruder@gmail.com');
+  assert.equal(result.view, 'UNAUTHORIZED_PAGE');
+  assert.equal(result.authorized, false);
+  assert.equal(result.exposedEmails, false);
+});
+
+test('56d. Security: all admin functions in Admin.gs verify assertAdmin_()', () => {
+  const adminCode = fs.readFileSync(path.join(__dirname, '..', 'Admin.gs'), 'utf8');
+  const adminEndpoints = [
+    'showAdminDashboard',
+    'adminMenuSendToday',
+    'adminMenuSendPreviousMonth',
+    'adminGetDashboardData',
+    'adminSetMeal',
+    'adminBulkSetMeals',
+    'adminCloseDay',
+    'adminReopenDay',
+    'adminReconcileDay',
+    'adminReopenReconciliation',
+    'adminSetAutoBooking',
+    'adminSetMemberActive',
+    'adminAddMember',
+    'adminSaveCutoff',
+    'adminSendDailyEmail',
+    'adminSendMonthlyEmail'
+  ];
+
+  adminEndpoints.forEach(fnName => {
+    const regex = new RegExp(`function\\s+${fnName}\\s*\\([^)]*\\)\\s*\\{([\\s\\S]*?)(?:\\nfunction|$)`);
+    const match = adminCode.match(regex);
+    assert.ok(match, `Function ${fnName} must exist in Admin.gs`);
+    const fnBody = match[1];
+    assert.ok(fnBody.includes('assertAdmin_()'), `Function ${fnName} must call assertAdmin_()`);
+  });
 });
 
 // 12. Robust Parsing & Zero-Data Loss Regression Tests
