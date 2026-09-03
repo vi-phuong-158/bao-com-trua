@@ -72,13 +72,14 @@ Google sẽ hỏi quyền lần đầu. Chấp nhận để script:
 - gửi email;
 - tạo trigger tự động.
 
-Sau khi chạy xong sẽ có 5 sheet:
+Sau khi chạy xong sẽ có 6 sheet:
 
-1. `THANH_VIEN`
-2. `CHAM_COM`
-3. `NHAT_KY`
-4. `CAU_HINH`
-5. `NGAY_NGHI`
+1. `THANH_VIEN`: Quản lý danh sách thành viên, trạng thái hoạt động và tự động báo cơm.
+2. `CHAM_COM`: Quản lý suất ăn theo ngày, người và loại bữa (`LUNCH` / `DINNER`).
+3. `NHAT_KY`: Nhật ký thao tác kiểm toán chi tiết.
+4. `CAU_HINH`: Giờ chốt (mặc định 08:00) và cấu hình email quản trị.
+5. `NGAY_NGHI`: Danh sách ngày nghỉ đã khóa.
+6. `DOI_SOAT`: Danh sách ngày đã đối soát / chốt sổ suất ăn.
 
 ---
 
@@ -247,14 +248,11 @@ Hệ thống nhận diện bằng **tên người dùng tự chọn**, vì vậy
 
 Nhật ký `NHAT_KY` vẫn lưu mọi lần báo/hủy để có thể đối chiếu khi cần.
 
-## 11. Admin Dashboard và ngày nghỉ
+## 11. Admin Dashboard, Cơm trưa & Cơm tối, và Đối soát ngày
 
-Admin Dashboard chạy trong Google Sheet, không đưa quyền quản trị vào Web App public. Sau `clasp push` và reload Sheet, mở menu **🍚 Quản trị cơm trưa → Mở Admin Dashboard** bằng tài khoản `vingocphuong.92@gmail.com` hoặc `anmphongandn@gmail.com`.
+Admin Dashboard chạy an toàn trong Google Sheet, không đưa quyền quản trị vào Web App public. Sau `clasp push` và reload Sheet, mở menu **🍚 Quản trị suất ăn → Mở Admin Dashboard** bằng tài khoản `vingocphuong.92@gmail.com` hoặc `anmphongandn@gmail.com`.
 
-Dùng điện thoại: mở [Admin mobile](https://script.google.com/macros/s/AKfycbwxL5XWo8Bti9IWe7bR_i3KnBdk1YhemSCb3NiLRdVf7jNYTsGIncJLDuL35iEQTSPVqA/exec?admin=1). Link này có toàn quyền quản trị, chỉ chia sẻ cho người tin cậy.
-
-Chạy `setupApp()` một lần khi áp dụng schema mới. Hàm tạo `NGAY_NGHI` và mở rộng `NHAT_KY` mà không xóa lịch sử cũ. Khi Admin khóa ngày nghỉ, Web App, auto-book và email đều hiển thị “không tổ chức ăn trưa”.
-
-Sau khi sửa code, deploy lại Web App để người dùng nhận phiên bản `Index.html`/`Code.gs` mới. Admin dùng nút **Gửi báo cáo ngày** để gửi lại email nếu dashboard báo dữ liệu đã thay đổi sau lần gửi trước.
-
-
+- **Quản lý Cơm trưa & Cơm tối:** Admin có thể chỉnh sửa chính xác từng ngày (kể cả quá khứ), từng người và từng bữa ăn (Trưa hoặc Tối).
+- **Đối soát / Chốt sổ ngày:** Admin kiểm tra số suất thực tế và bấm **Đánh dấu đã đối soát**. Nếu sau đó có thay đổi, hệ thống sẽ tự động cảnh báo **Cần đối soát lại**.
+- **Khóa ngày nghỉ:** Khi khóa ngày nghỉ, hệ thống hiển thị “Hôm nay không tổ chức ăn trưa” và không tính suất ăn, nhưng **vẫn giữ nguyên lịch sử đặt cơm** trong `CHAM_COM` để khi mở lại ngày sẽ khôi phục chính xác.
+- **Báo cáo & Email:** Email hằng ngày gửi lúc 08:00 chỉ báo cơm trưa. Nếu Admin sửa cơm trưa sau giờ gửi, Dashboard sẽ cảnh báo và cho phép gửi lại với tiêu đề `[CẬP NHẬT]`. Việc thêm cơm tối không làm ảnh hưởng email trưa. Email tổng kết tháng hiển thị rõ 3 cột: Trưa, Tối, Tổng cộng.

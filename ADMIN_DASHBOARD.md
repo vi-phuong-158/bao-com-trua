@@ -1,57 +1,72 @@
-# Admin Dashboard — Báo cơm trưa
+# Admin Dashboard — Quản trị Suất ăn (Trưa & Tối)
 
-Admin Dashboard chạy trong Google Sheet dưới dạng Apps Script dialog. Web App public vẫn cho người dùng báo cơm không cần đăng nhập.
+Hệ thống quản lý suất ăn nội bộ cho 30–40 người, vận hành bằng **Google Apps Script + Google Sheets**.
+Admin Dashboard chạy trực tiếp bên trong Google Sheet dưới dạng Apps Script Dialog (`showAdminDashboard`), được bảo mật chặt chẽ bằng tài khoản Google của Admin (`vingocphuong.92@gmail.com`).
 
-## Mở dashboard
+---
 
-1. Chạy `setupApp()` một lần để tạo/migrate các sheet.
-2. Reload Google Sheet.
-3. Chọn menu **🍚 Quản trị cơm trưa → Mở Admin Dashboard**.
-4. Mở Google Sheet bằng tài khoản có quyền chỉnh sửa Sheet.
-5. Trên điện thoại, mở [Admin mobile](https://script.google.com/macros/s/AKfycbwxL5XWo8Bti9IWe7bR_i3KnBdk1YhemSCb3NiLRdVf7jNYTsGIncJLDuL35iEQTSPVqA/exec?admin=1). Link này có toàn quyền quản trị, chỉ chia sẻ cho người tin cậy.
+## 1. Mở Admin Dashboard
 
-Admin mobile không kiểm tra email theo yêu cầu vận hành. Bất kỳ ai có link đều có thể thực hiện thao tác quản trị.
+1. Mở Google Sheet **HỘI CƠM TRƯA** bằng tài khoản Admin (`vingocphuong.92@gmail.com`).
+2. Chọn menu: **🍚 Quản trị suất ăn → Mở Admin Dashboard**.
+3. Dashboard sẽ mở ra với toàn quyền xem, sửa, đối soát theo từng ngày, từng người, từng bữa.
 
-## Chức năng
+---
 
-- Chọn bất kỳ ngày nào, kể cả ngày quá khứ và sau giờ chốt.
-- Đánh hộ, báo ngoài, cắt, xóa trạng thái.
-- Đặt/cắt tất cả thành viên đang hoạt động.
-- Khóa ngày nghỉ, ghi chú và mở lại ngày.
-- Xem trạng thái email; gửi lại báo cáo ngày sau khi dữ liệu thay đổi.
-- Thống kê tháng theo trạng thái cuối cùng mỗi người/ngày.
-- Thêm thành viên, bật/tắt hoạt động và tự động báo cơm.
-- Chỉnh giờ chốt từ `CAU_HINH`.
+## 2. Các Tính năng Chính
 
-## Schema
+### A. Quản lý theo ngày (Trưa & Tối)
+- **Bộ chọn ngày (Date Picker):** Chọn bất kỳ ngày nào (hôm nay, quá khứ hoặc tương lai). Admin hoàn toàn bypass giờ chốt (cutoff).
+- **Cơm trưa (LUNCH):**
+  - Xem trạng thái: *Đã đặt*, *Đã cắt*, *Chưa báo*, kèm nhãn nguồn (*Đánh hộ*, *Báo ngoài*, *Tự động*, *Người dùng*).
+  - Thao tác nhanh: `Đánh hộ`, `Báo ngoài`, `Cắt`, `Xóa`.
+- **Cơm tối (DINNER):**
+  - Xem trạng thái: *Đã đặt*, *Đã cắt*, *Chưa báo*.
+  - Thao tác nhanh: `+ Tối` (Đánh hộ tối), `Báo ngoài`, `Cắt`, `Xóa`.
+- **Thao tác hàng loạt (Bulk actions):**
+  - `Đặt trưa tất cả` / `Cắt trưa tất cả` (chỉ áp dụng cho LUNCH của thành viên đang hoạt động).
+  - `Đặt tối tất cả` / `Cắt tối tất cả` (chỉ áp dụng cho DINNER của thành viên đang hoạt động).
+  - Hai bữa ăn hoàn toàn cô lập: thao tác trưa không ảnh hưởng tối và ngược lại.
 
-`setupApp()` mở rộng an toàn:
+### B. Đối soát / Chốt sổ từng ngày
+- Sau khi kiểm tra suất ăn thực tế, Admin bấm: **✅ Đánh dấu đã đối soát**.
+- Hệ thống lưu lại thời gian, tài khoản Admin và mã băm snapshot suất ăn của ngày.
+- **Tự động cảnh báo khi có thay đổi:** Nếu Admin chỉnh sửa bất kỳ suất ăn nào (trưa hoặc tối) sau khi đã đối soát, Dashboard sẽ tự động hiển thị: **⚠️ Dữ liệu thay đổi — Cần đối soát lại!**.
+- Admin có thể bấm **Đối soát lại** để cập nhật hoặc **Mở lại đối soát** (`OPEN`).
 
-- `THANH_VIEN`: ID, HO_TEN, DANG_HOAT_DONG, TU_DONG_BAO_COM
-- `CHAM_COM`: trạng thái cuối hiện tại theo ngày/người
-- `NHAT_KY`: thêm NGUON và GHI_CHU, không xóa audit cũ
-- `CAU_HINH`: ADMIN_EMAIL, ADMIN_EMAILS, CUTOFF, APP_NAME
-- `NGAY_NGHI`: ngày, trạng thái, ghi chú, người cập nhật, thời gian
+### C. Khóa ngày nghỉ & Bảo toàn dữ liệu
+- Khi khóa ngày nghỉ (**🔒 Khóa ngày nghỉ**):
+  - Web App người dùng hiển thị: *“Hôm nay không tổ chức ăn trưa”*.
+  - Hệ thống tự động báo cơm (auto-book) bỏ qua ngày này.
+  - Thống kê ngày và tháng tính 0 suất ăn cho ngày nghỉ.
+  - **BẢO TOÀN DỮ LIỆU TUYỆT ĐỐI:** Khóa ngày nghỉ **KHÔNG** xóa hay hủy các bản ghi trong `CHAM_COM`.
+- Khi mở lại ngày nghỉ (**↩ Mở lại ngày**):
+  - Toàn bộ dữ liệu đặt cơm trước đó tự động khôi phục nguyên vẹn (ai đã đặt vẫn là đặt, ai đã hủy vẫn là hủy).
 
-## Deploy
+### D. Báo cáo & Email
+- **Email cơm trưa hằng ngày (08:00):** Tự động gửi lúc giờ chốt, chỉ tổng hợp danh sách Cơm Trưa (`LUNCH`).
+- **Phát hiện dữ liệu thay đổi:** Nếu sau giờ chốt Admin chỉnh sửa Cơm Trưa, Dashboard hiện cảnh báo và cho phép bấm **✉ Gửi báo cáo trưa** với tiêu đề `🍚 [CẬP NHẬT] Báo cơm trưa DD/MM/YYYY: X suất`.
+- **Cô lập bữa ăn:** Thêm/sửa Cơm Tối (`DINNER`) **không** làm dirty email trưa.
+- **Email tổng kết tháng:** Tách rõ 3 cột: Cơm Trưa, Cơm Tối, Tổng cộng.
 
-Với clasp:
+---
 
-```powershell
-clasp push
-```
+## 3. Cấu trúc Sheet (Data Schema)
 
-Sau đó deploy lại Web App nếu đã thay đổi `Code.gs`/`Index.html`. Admin Dashboard không cần deploy riêng; mở từ Google Sheet sau khi reload.
+Hàm `setupApp()` tự động tạo/nâng cấp các sheet một cách an toàn (idempotent, không mất dữ liệu cũ):
 
-Nếu dùng Apps Script UI, tạo/cập nhật 5 file: `Code.gs`, `Index.html`, `Admin.gs`, `AdminDashboard.html`, `appsscript.json`, rồi chạy `setupApp()`.
+1. **`THANH_VIEN`**: `ID`, `HO_TEN`, `DANG_HOAT_DONG`, `TU_DONG_BAO_COM`.
+2. **`CHAM_COM`**: `NGAY`, `MEMBER_ID`, `HO_TEN`, `LOAI_BUA`, `TRANG_THAI`, `CAP_NHAT_LUC`.
+   - Khóa logic: `NGAY + MEMBER_ID + LOAI_BUA`.
+   - `LOAI_BUA`: `LUNCH` hoặc `DINNER`. Dữ liệu cũ tự động migrate thành `LUNCH`.
+3. **`NHAT_KY`**: `THOI_GIAN`, `NGAY`, `MEMBER_ID`, `HO_TEN`, `LOAI_BUA`, `HANH_DONG`, `NGUON`, `GHI_CHU`.
+4. **`CAU_HINH`**: `ADMIN_EMAIL`, `ADMIN_EMAILS`, `CUTOFF` (mặc định 08:00), `APP_NAME`.
+5. **`NGAY_NGHI`**: `NGAY`, `TRANG_THAI` (`CLOSED` / `OPEN`), `GHI_CHU`, `CAP_NHAT_BOI`, `CAP_NHAT_LUC`.
+6. **`DOI_SOAT`**: `NGAY`, `TRANG_THAI` (`RECONCILED` / `OPEN`), `DOI_SOAT_BOI`, `DOI_SOAT_LUC`, `GHI_CHU`, `SNAPSHOT_HASH`.
 
-## Kiểm tra nhanh
+---
 
-- Khóa một ngày tương lai: user thấy “Hôm nay không tổ chức ăn trưa”, không book được, auto-book bỏ qua.
-- Mở lại ngày: user và auto-book hoạt động lại.
-- Gửi email ngày, sửa một booking trong Admin: Dashboard phải báo dữ liệu đã thay đổi; bấm gửi lại để nhận subject `[CẬP NHẬT]`.
-- Kiểm tra `NHAT_KY` có action và nguồn `ADMIN_*`, `USER_*`, `BOOK_AUTO`.
+## 4. Bảo mật Phân quyền
 
-Apps Script runtime/live deployment vẫn cần được kiểm tra trên Google Sheet thật; local validation không thay thế bước đó.
-
-
+- Tất cả hàm quản trị (`admin*`) đều bắt buộc kiểm tra `Session.getActiveUser().getEmail()` thuộc danh sách Admin (`vingocphuong.92@gmail.com`).
+- Web App public hoạt động ở chế độ ẩn danh (không bắt buộc người dùng đăng nhập), và **không thể** gọi bất kỳ hàm quản trị nào.

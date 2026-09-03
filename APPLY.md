@@ -1,14 +1,15 @@
-# Áp dụng bản hoàn thiện
+# Áp dụng bản hoàn thiện — Quản lý Suất ăn Trưa & Tối, Đối soát ngày
 
-1. Đẩy 5 file Apps Script ở root lên project đã liên kết:
+1. Đẩy các file Apps Script lên project đã liên kết:
 
 ```powershell
 clasp push
 ```
 
-2. Trong Apps Script chạy `setupApp()` một lần. Hàm tạo/migrate `NGAY_NGHI` và mở rộng `NHAT_KY` mà không xóa dữ liệu.
-3. Reload Google Sheet.
-4. Mở **🍚 Quản trị cơm trưa → Mở Admin Dashboard** bằng `vingocphuong.92@gmail.com`.
-5. Deploy lại Web App để người dùng nhận UI/logic ngày nghỉ mới.
-
-Không cần chạy `setupApp()` mỗi lần sửa code; chỉ chạy lại khi áp dụng schema/migration trên một Sheet chưa có các cột mới.
+2. Trong Google Apps Script Editor, chọn hàm `setupApp()` và bấm **Run / Chạy**.
+   - Hàm tự động migrate cột `LOAI_BUA` cho `CHAM_COM` và `NHAT_KY` (gán toàn bộ lịch sử cũ là `LUNCH`).
+   - Tự động tạo sheet `DOI_SOAT` để quản lý đối soát / chốt sổ từng ngày.
+   - Hoàn toàn idempotent, không duplicate dữ liệu, bảo toàn dữ liệu cũ.
+3. Reload lại Google Sheet.
+4. Mở menu **🍚 Quản trị suất ăn → Mở Admin Dashboard** bằng tài khoản Admin `vingocphuong.92@gmail.com`.
+5. Vào Apps Script Editor → **Deploy → Manage deployments** → Edit deployment của Web App → chọn Version: **New version** → bấm **Deploy** để người dùng nhận giao diện và logic mới.
