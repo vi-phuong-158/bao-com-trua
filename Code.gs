@@ -79,21 +79,18 @@ const APP = {
 
 function doGet(e) {
   const pathInfo = String((e && e.pathInfo) || '').split('/').filter(Boolean).join('/');
-  const isAdminWebApp = String((e && e.parameter && e.parameter.admin) || '') === '1';
+  const isAdminParam = String((e && e.parameter && e.parameter.admin) || '') === '1';
 
-  if (pathInfo === 'admin' || isAdminWebApp) {
-    try {
-      assertAdmin_();
-      return renderAdminWebApp_();
-    } catch (err) {
-      return HtmlService.createHtmlOutput(
-        '<div style="font-family:Arial,sans-serif;padding:24px;text-align:center;">' +
-        '<h2>Không có quyền truy cập trang quản trị</h2>' +
-        '<p>Admin Dashboard chỉ hoạt động trong Google Sheet hoặc tài khoản Admin được ủy quyền (' +
-        APP.ADMIN_EMAILS.join(', ') + ').</p>' +
-        '</div>'
-      ).setTitle('Quản trị suất ăn');
-    }
+  // Security closure: Admin Dashboard chỉ chạy trực tiếp trong Google Sheet, đóng hoàn toàn route /admin và ?admin=1 công khai
+  if (pathInfo === 'admin' || isAdminParam) {
+    return HtmlService.createHtmlOutput(
+      '<div style="font-family:sans-serif;max-width:520px;margin:48px auto;padding:24px;border:1px solid #fed7aa;background:#fff7ed;border-radius:14px;text-align:center;color:#9a3412;box-shadow:0 4px 14px rgba(0,0,0,0.06);">' +
+      '<h2 style="margin-top:0;font-size:20px;">🔒 Đã đóng truy cập Quản trị công khai</h2>' +
+      '<p style="color:#374151;font-size:14px;line-height:1.6;">Để bảo đảm an toàn dữ liệu, Admin Dashboard <strong>chỉ hoạt động trực tiếp bên trong Google Sheet</strong>.</p>' +
+      '<p style="color:#6b7280;font-size:13px;margin-top:12px;">Vui lòng mở Google Sheet và chọn menu <strong>🍚 Quản trị suất ăn → Mở Admin Dashboard</strong> bằng tài khoản quản trị được cấp quyền (' +
+      APP.ADMIN_EMAILS.join(', ') + ').</p>' +
+      '</div>'
+    ).setTitle('Quản trị suất ăn');
   }
 
   return HtmlService.createTemplateFromFile('Index')
@@ -101,14 +98,6 @@ function doGet(e) {
     .setTitle('Báo cơm trưa')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}
-
-function renderAdminWebApp_() {
-  const template = HtmlService.createTemplateFromFile('AdminDashboard');
-  template.isWebApp = true;
-  return template.evaluate()
-    .setTitle('Quản trị suất ăn')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
 }
 
 /**

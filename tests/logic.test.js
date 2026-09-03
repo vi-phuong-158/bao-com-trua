@@ -689,13 +689,65 @@ test('49. Authorization: accepts authorized admin email', () => {
 });
 
 test('50. Authorization: rejects unauthorized email', () => {
-  const allowed = ['vingocphuong.92@gmail.com'];
+  const allowed = ['vingocphuong.92@gmail.com', 'anmphongandn@gmail.com'];
   assert.throws(() => assertAdmin('attacker@example.com', allowed), /Không có quyền quản trị/);
 });
 
 test('51. Authorization: rejects empty / anonymous user', () => {
-  const allowed = ['vingocphuong.92@gmail.com'];
+  const allowed = ['vingocphuong.92@gmail.com', 'anmphongandn@gmail.com'];
   assert.throws(() => assertAdmin('', allowed), /Không có quyền quản trị/);
   assert.throws(() => assertAdmin(null, allowed), /Không có quyền quản trị/);
   assert.throws(() => assertAdmin(undefined, allowed), /Không có quyền quản trị/);
+});
+
+// 11. Multi-Admin & Public Route Security Closure Tests
+function resolveAdminEmails(configuredStr, fallbackList = ['vingocphuong.92@gmail.com', 'anmphongandn@gmail.com']) {
+  const raw = String(configuredStr || '') + ',' + fallbackList.join(',');
+  return [...new Set(raw
+    .split(/[;,\n]+/)
+    .map(email => String(email || '').trim().toLowerCase())
+    .filter(Boolean))];
+}
+
+function simulateDoGet(e) {
+  const pathInfo = String((e && e.pathInfo) || '').split('/').filter(Boolean).join('/');
+  const isAdminParam = String((e && e.parameter && e.parameter.admin) || '') === '1';
+
+  if (pathInfo === 'admin' || isAdminParam) {
+    return { view: 'SECURITY_CLOSED', title: 'Quản trị suất ăn', blocked: true };
+  }
+  return { view: 'INDEX', title: 'Báo cơm trưa', blocked: false };
+}
+
+test('52. Multi-Admin: preserves both vingocphuong.92@gmail.com and anmphongandn@gmail.com', () => {
+  const admins = resolveAdminEmails('vingocphuong.92@gmail.com, anmphongandn@gmail.com');
+  assert.equal(admins.includes('vingocphuong.92@gmail.com'), true);
+  assert.equal(admins.includes('anmphongandn@gmail.com'), true);
+  assert.equal(assertAdmin('vingocphuong.92@gmail.com', admins), true);
+  assert.equal(assertAdmin('anmphongandn@gmail.com', admins), true);
+});
+
+test('53. Multi-Admin: supports custom admin emails configured in CAU_HINH alongside owners', () => {
+  const admins = resolveAdminEmails('extra_admin@company.com; vingocphuong.92@gmail.com');
+  assert.equal(admins.includes('extra_admin@company.com'), true);
+  assert.equal(admins.includes('vingocphuong.92@gmail.com'), true);
+  assert.equal(admins.includes('anmphongandn@gmail.com'), true); // Fallback owner preserved
+});
+
+test('54. Security Closure: public route /admin is cleanly blocked', () => {
+  const result = simulateDoGet({ pathInfo: 'admin' });
+  assert.equal(result.view, 'SECURITY_CLOSED');
+  assert.equal(result.blocked, true);
+});
+
+test('55. Security Closure: public parameter ?admin=1 is cleanly blocked', () => {
+  const result = simulateDoGet({ parameter: { admin: '1' } });
+  assert.equal(result.view, 'SECURITY_CLOSED');
+  assert.equal(result.blocked, true);
+});
+
+test('56. Security Closure: normal public Web App request serves User Index view', () => {
+  const result = simulateDoGet({});
+  assert.equal(result.view, 'INDEX');
+  assert.equal(result.blocked, false);
 });
