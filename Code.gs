@@ -66,6 +66,8 @@ const APP = {
     CONFIG: 'CAU_HINH',
     CLOSED_DAYS: 'NGAY_NGHI',
     RECONCILIATION: 'DOI_SOAT',
+    DAILY_SETTLEMENT: 'QUYET_TOAN_NGAY',
+    MONTHLY_SETTLEMENT: 'QUYET_TOAN_THANG',
   },
   HEADERS: {
     MEMBERS: ['ID', 'HO_TEN', 'DANG_HOAT_DONG', 'TU_DONG_BAO_COM'],
@@ -74,6 +76,18 @@ const APP = {
     CONFIG: ['KEY', 'VALUE'],
     CLOSED_DAYS: ['NGAY', 'TRANG_THAI', 'GHI_CHU', 'CAP_NHAT_BOI', 'CAP_NHAT_LUC'],
     RECONCILIATION: ['NGAY', 'TRANG_THAI', 'DOI_SOAT_BOI', 'DOI_SOAT_LUC', 'GHI_CHU', 'SNAPSHOT_HASH'],
+    DAILY_SETTLEMENT: ['NGAY', 'LUNCH_ACTUAL', 'DINNER_NOTE_COUNT', 'DINNER_NOTE', 'SOURCE', 'TRANG_THAI', 'GHI_CHU', 'CAP_NHAT_BOI', 'CAP_NHAT_LUC'],
+    MONTHLY_SETTLEMENT: ['THANG', 'TRANG_THAI', 'TONG_PHAN_MEM', 'TONG_QUYET_TOAN', 'CHENH_LECH', 'GHI_CHU_TOI', 'KHOA_LUC', 'KHOA_BOI', 'GHI_CHU'],
+  },
+  SETTLEMENT_STATES: {
+    DRAFT: 'DRAFT',
+    RECONCILED: 'RECONCILED',
+    LOCKED: 'LOCKED',
+  },
+  MONTH_STATES: {
+    OPEN: 'OPEN',
+    RECONCILING: 'RECONCILING',
+    LOCKED: 'LOCKED',
   },
 };
 
@@ -147,13 +161,15 @@ function setupApp() {
   ensureSheet_(ss, APP.SHEETS.CONFIG, APP.HEADERS.CONFIG);
   ensureSheet_(ss, APP.SHEETS.CLOSED_DAYS, APP.HEADERS.CLOSED_DAYS);
   ensureSheet_(ss, APP.SHEETS.RECONCILIATION, APP.HEADERS.RECONCILIATION);
+  ensureSheet_(ss, APP.SHEETS.DAILY_SETTLEMENT, APP.HEADERS.DAILY_SETTLEMENT);
+  ensureSheet_(ss, APP.SHEETS.MONTHLY_SETTLEMENT, APP.HEADERS.MONTHLY_SETTLEMENT);
 
   const seeded = seedDefaultMembers_(ss);
   seedConfig_(ss);
   formatSheets_(ss);
   installAutomationTriggers_();
 
-  return `Đã khởi tạo xong. Đã thêm ${seeded.added} thành viên mặc định. Hệ thống đã nâng cấp mô hình Trưa & Tối.`;
+  return `Đã khởi tạo xong. Đã thêm ${seeded.added} thành viên mặc định. Hệ thống đã nâng cấp lớp Quyết toán thực tế.`;
 }
 
 /**
@@ -369,14 +385,16 @@ function getMonthlySummary_(monthKey) {
 
   const states = getFinalBookingStateMap_(normalized);
   const closedDays = getClosedDayMap_(normalized);
+  const dailySoftwareLunch = {};
 
   Object.keys(states).forEach(key => {
     const state = states[key];
-    if (state.status === APP.MEAL_STATES.BOOKED && !closedDays[state.dateKey] && state.memberId in lunchCounts) {
-      if (state.mealType === APP.MEAL_TYPES.DINNER) {
-        dinnerCounts[state.memberId]++;
-      } else {
-        lunchCounts[state.memberId]++;
+    if (state.status === APP.MEAL_STATES.BOOKED && !closedDays[state.dateKey]) {
+      if (state.mealType === APP.MEAL_TYPES.LUNCH) {
+        if (state.memberId in lunchCounts) lunchCounts[state.memberId]++;
+        dailySoftwareLunch[state.dateKey] = (dailySoftwareLunch[state.dateKey] || 0) + 1;
+      } else if (state.mealType === APP.MEAL_TYPES.DINNER) {
+        if (state.memberId in dinnerCounts) dinnerCounts[state.memberId]++;
       }
     }
   });
@@ -384,28 +402,383 @@ function getMonthlySummary_(monthKey) {
   const rows = members.map(member => {
     const lunch = lunchCounts[member.id] || 0;
     const dinner = dinnerCounts[member.id] || 0;
-    const total = lunch + dinner;
     return {
       memberId: member.id,
       name: member.name,
       active: member.active,
       lunch,
       dinner,
-      total,
+      total: lunch, // CƠM TRƯA LÀ PHẦN DUY NHẤT DÙNG ĐỂ QUYẾT TOÁN TIỀN
     };
-  }).sort((a, b) => b.total - a.total || b.lunch - a.lunch || memberDisplayOrder_(a, b));
+  }).sort((a, b) => b.total - a.total || memberDisplayOrder_(a, b));
 
-  const totalLunch = rows.reduce((sum, r) => sum + r.lunch, 0);
-  const totalDinner = rows.reduce((sum, r) => sum + r.dinner, 0);
-  const total = totalLunch + totalDinner;
+  const settlements = getMonthlySettlementMap_(normalized);
+  const allDates = new Set(Object.keys(dailySoftwareLunch).concat(Object.keys(settlements)));
+  let totalSoftwareLunch = 0;
+  let totalOfficialLunch = 0;
+  let totalDinnerNotes = 0;
+
+  allDates.forEach(dKey => {
+    const sw = dailySoftwareLunch[dKey] || 0;
+    const st = settlements[dKey];
+    const act = (st && st.lunchActual !== null && st.lunchActual !== '' && !isNaN(st.lunchActual))
+      ? Number(st.lunchActual)
+      : sw;
+    totalSoftwareLunch += sw;
+    totalOfficialLunch += act;
+    totalDinnerNotes += (st && st.dinnerNoteCount) ? Number(st.dinnerNoteCount) : 0;
+  });
+
+  const totalDiff = totalOfficialLunch - totalSoftwareLunch;
+  const monthStatus = getMonthSettlementStatus_(normalized);
 
   return {
     month: normalized,
+    monthKey: normalized,
     monthLabel: monthDisplay_(normalized),
-    totalLunch,
-    totalDinner,
-    total,
+    totalSoftwareLunch,
+    totalOfficialLunch,
+    totalPayable: totalOfficialLunch, // CƠM TRƯA LÀ PHẦN DUY NHẤT DÙNG ĐỂ QUYẾT TOÁN TIỀN
+    totalLunch: totalSoftwareLunch,   // Giữ tương thích
+    totalDinner: totalDinnerNotes,    // Chỉ mang tính chất ghi chú tham khảo
+    total: totalOfficialLunch,        // Tổng quyết toán chính thức
+    diff: totalDiff,
+    dinnerNotes: totalDinnerNotes,
+    monthStatus: monthStatus.status || APP.MONTH_STATES.OPEN,
     rows,
+  };
+}
+
+/**
+ * Lấy dữ liệu quyết toán của một ngày từ QUYET_TOAN_NGAY.
+ */
+function getDailySettlement_(dateKey) {
+  try {
+    const sh = getSheet_(APP.SHEETS.DAILY_SETTLEMENT);
+    const lastRow = sh.getLastRow();
+    if (lastRow < 2) return null;
+
+    const values = sh.getRange(2, 1, lastRow - 1, 9).getValues();
+    let hit = null;
+    for (let i = 0; i < values.length; i++) {
+      const row = values[i];
+      const rDate = normalizeDateCell_(row[0]);
+      if (rDate === dateKey) {
+        hit = {
+          rowNumber: i + 2,
+          dateKey: rDate,
+          lunchActual: (row[1] !== '' && row[1] !== null && !isNaN(row[1])) ? Number(row[1]) : null,
+          dinnerNoteCount: (row[2] !== '' && row[2] !== null && !isNaN(row[2])) ? Number(row[2]) : 0,
+          dinnerNote: String(row[3] || '').trim(),
+          source: String(row[4] || '').trim(),
+          status: String(row[5] || '').trim().toUpperCase() || APP.SETTLEMENT_STATES.DRAFT,
+          note: String(row[6] || '').trim(),
+          updatedBy: String(row[7] || '').trim(),
+          updatedAt: row[8],
+        };
+      }
+    }
+    return hit;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Lấy map quyết toán theo ngày cho cả tháng từ QUYET_TOAN_NGAY.
+ */
+function getMonthlySettlementMap_(monthKey) {
+  const map = {};
+  try {
+    const sh = getSheet_(APP.SHEETS.DAILY_SETTLEMENT);
+    const lastRow = sh.getLastRow();
+    if (lastRow < 2) return map;
+
+    const values = sh.getRange(2, 1, lastRow - 1, 9).getValues();
+    for (let i = 0; i < values.length; i++) {
+      const row = values[i];
+      const rDate = normalizeDateCell_(row[0]);
+      if (rDate && (!monthKey || rDate.startsWith(monthKey))) {
+        map[rDate] = {
+          rowNumber: i + 2,
+          dateKey: rDate,
+          lunchActual: (row[1] !== '' && row[1] !== null && !isNaN(row[1])) ? Number(row[1]) : null,
+          dinnerNoteCount: (row[2] !== '' && row[2] !== null && !isNaN(row[2])) ? Number(row[2]) : 0,
+          dinnerNote: String(row[3] || '').trim(),
+          source: String(row[4] || '').trim(),
+          status: String(row[5] || '').trim().toUpperCase() || APP.SETTLEMENT_STATES.DRAFT,
+          note: String(row[6] || '').trim(),
+          updatedBy: String(row[7] || '').trim(),
+          updatedAt: row[8],
+        };
+      }
+    }
+  } catch (err) {}
+  return map;
+}
+
+/**
+ * Cập nhật hoặc thêm mới dòng quyết toán ngày trong QUYET_TOAN_NGAY.
+ */
+function upsertDailySettlement_(dateKey, data, userEmail) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss) ensureSheet_(ss, APP.SHEETS.DAILY_SETTLEMENT, APP.HEADERS.DAILY_SETTLEMENT);
+    const sh = getSheet_(APP.SHEETS.DAILY_SETTLEMENT);
+    const existing = getDailySettlement_(dateKey);
+    const now = new Date();
+
+    const lunchActual = (data.lunchActual !== null && data.lunchActual !== '' && !isNaN(data.lunchActual))
+      ? Number(data.lunchActual)
+      : '';
+    const dinnerNoteCount = (data.dinnerNoteCount !== null && data.dinnerNoteCount !== '' && !isNaN(data.dinnerNoteCount))
+      ? Number(data.dinnerNoteCount)
+      : 0;
+    const dinnerNote = data.dinnerNote !== undefined ? String(data.dinnerNote).trim() : (existing ? existing.dinnerNote : '');
+    const source = data.source || (existing ? existing.source : 'ADMIN');
+    const status = (data.status || (existing ? existing.status : APP.SETTLEMENT_STATES.DRAFT)).toUpperCase();
+    const note = data.note !== undefined ? String(data.note).trim() : (existing ? existing.note : '');
+    const updatedBy = userEmail || String(Session.getActiveUser().getEmail() || 'ADMIN');
+
+    const row = [dateKey, lunchActual, dinnerNoteCount, dinnerNote, source, status, note, updatedBy, now];
+
+    if (existing && existing.rowNumber) {
+      sh.getRange(existing.rowNumber, 1, 1, 9).setValues([row]);
+    } else {
+      sh.appendRow(row);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Lấy trạng thái chốt sổ của tháng từ QUYET_TOAN_THANG.
+ */
+function getMonthSettlementStatus_(monthKey) {
+  try {
+    const sh = getSheet_(APP.SHEETS.MONTHLY_SETTLEMENT);
+    const lastRow = sh.getLastRow();
+    if (lastRow < 2) return { status: APP.MONTH_STATES.OPEN, note: '', lockedBy: '', lockedAt: '' };
+
+    const values = sh.getRange(2, 1, lastRow - 1, 9).getValues();
+    let hit = null;
+    for (let i = 0; i < values.length; i++) {
+      const row = values[i];
+      if (String(row[0] || '').trim() === monthKey) {
+        hit = {
+          rowNumber: i + 2,
+          monthKey,
+          status: String(row[1] || '').trim().toUpperCase() || APP.MONTH_STATES.OPEN,
+          totalSoftware: Number(row[2] || 0),
+          totalOfficial: Number(row[3] || 0),
+          diff: Number(row[4] || 0),
+          dinnerNotes: Number(row[5] || 0),
+          lockedAt: row[6],
+          lockedBy: String(row[7] || '').trim(),
+          note: String(row[8] || '').trim(),
+        };
+      }
+    }
+    return hit || { status: APP.MONTH_STATES.OPEN, note: '', lockedBy: '', lockedAt: '' };
+  } catch (err) {
+    return { status: APP.MONTH_STATES.OPEN, note: '', lockedBy: '', lockedAt: '' };
+  }
+}
+
+/**
+ * Cập nhật trạng thái chốt sổ của tháng trong QUYET_TOAN_THANG.
+ */
+function setMonthSettlementStatus_(monthKey, status, note, userEmail, stats) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss) ensureSheet_(ss, APP.SHEETS.MONTHLY_SETTLEMENT, APP.HEADERS.MONTHLY_SETTLEMENT);
+    const sh = getSheet_(APP.SHEETS.MONTHLY_SETTLEMENT);
+    const existing = getMonthSettlementStatus_(monthKey);
+    const now = new Date();
+    const by = userEmail || String(Session.getActiveUser().getEmail() || 'ADMIN');
+    const s = (status || APP.MONTH_STATES.OPEN).toUpperCase();
+
+    const row = [
+      monthKey,
+      s,
+      stats ? stats.totalSoftware : (existing ? existing.totalSoftware : 0),
+      stats ? stats.totalOfficial : (existing ? existing.totalOfficial : 0),
+      stats ? stats.diff : (existing ? existing.diff : 0),
+      stats ? stats.dinnerNotes : (existing ? existing.dinnerNotes : 0),
+      s === APP.MONTH_STATES.LOCKED ? now : (existing ? existing.lockedAt : ''),
+      by,
+      note !== undefined ? note : (existing ? existing.note : ''),
+    ];
+
+    if (existing && existing.rowNumber) {
+      sh.getRange(existing.rowNumber, 1, 1, 9).setValues([row]);
+    } else {
+      sh.appendRow(row);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Xác định một ngày có tổ chức dịch vụ ăn trưa hay không.
+ * Ngày thường: mặc định có (trừ khi đóng là ngày nghỉ).
+ * Cuối tuần: chỉ có khi Admin chủ động bật SERVICE_DAY.
+ */
+function isMealServiceDay_(date) {
+  const dKey = dateKey_(date);
+  if (isClosedDay_(dKey)) return false;
+  if (!isWeekend_(date)) return true;
+  return getConfig_('SERVICE_DAY_' + dKey, '0') === '1';
+}
+
+/**
+ * Thành viên tự đối soát trừ suất cơm trưa cuối tháng.
+ * Chỉ thực hiện được khi tháng chưa bị KHÓA (LOCKED).
+ */
+function userSelfRemoveLunch(dateKey, memberId) {
+  const normDate = normalizeDateKey_(dateKey);
+  const monthKey = normDate.slice(0, 7);
+  const monthStatus = getMonthSettlementStatus_(monthKey);
+  if (monthStatus && monthStatus.status === APP.MONTH_STATES.LOCKED) {
+    throw new Error(`Tháng ${monthKey} đã được chốt sổ (LOCKED), không thể tự trừ suất.`);
+  }
+
+  const member = getMemberById_(memberId, true);
+  if (!member) throw new Error('Không tìm thấy thành viên.');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = getSheet_(APP.SHEETS.BOOKINGS);
+    const existing = findBookingRow_(sh, normDate, member.id, APP.MEAL_TYPES.LUNCH);
+    if (!existing.rowNumber) {
+      throw new Error('Bạn không có suất cơm trưa để trừ trong ngày này.');
+    }
+
+    const currentRows = getBookingRows_().filter(r => r.dateKey === normDate && r.memberId === member.id && r.mealType === APP.MEAL_TYPES.LUNCH);
+    const latestState = currentRows.length ? currentRows[currentRows.length - 1] : null;
+    if (!latestState || latestState.status !== APP.MEAL_STATES.BOOKED) {
+      throw new Error('Bạn không có suất cơm trưa hợp lệ để trừ trong ngày này.');
+    }
+
+    const now = new Date();
+    const row = [normDate, member.id, member.name, APP.MEAL_TYPES.LUNCH, APP.MEAL_STATES.CANCELLED, now];
+    sh.appendRow(row);
+    appendAudit_(normDate, member, APP.MEAL_TYPES.LUNCH, 'USER_SELF_REMOVE_LUNCH', 'USER', 'Thành viên tự đối soát trừ suất cuối tháng', now);
+  } finally {
+    lock.releaseLock();
+  }
+
+  return { ok: true, message: `Đã trừ suất cơm ngày ${dateDisplayFromKey_(normDate)} thành công.` };
+}
+
+/**
+ * Danh sách số liệu thực tế tháng 8/2026 đối soát theo sổ tay của hội cơm.
+ * BẮT BUỘC: tổng suất trưa = 181, tổng ghi chú tối = 8, số ngày = 19.
+ */
+const AUGUST_2026_ACTUAL_LUNCH = [
+  { date: '2026-08-10', lunch: 14, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-11', lunch: 13, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-12', lunch: 0,  dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-13', lunch: 12, dinner: 2, dinnerNote: 'Sổ tay ghi +2 suất tối. Chỉ lưu ghi chú, không tính tiền cơm trưa.', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-14', lunch: 10, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-17', lunch: 10, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-18', lunch: 13, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-19', lunch: 0,  dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-20', lunch: 15, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-21', lunch: 11, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-22', lunch: 6,  dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK_ZALO' },
+  { date: '2026-08-23', lunch: 2,  dinner: 2, dinnerNote: 'Zalo: trưa Phạm Hùng, Thịnh; chiều Phạm Hùng, Thịnh. Lunch quyết toán = 2.', source: 'OWNER_NOTEBOOK_ZALO' },
+  { date: '2026-08-24', lunch: 12, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-25', lunch: 14, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-26', lunch: 14, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-27', lunch: 10, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-28', lunch: 14, dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-30', lunch: 7,  dinner: 0, dinnerNote: '', source: 'OWNER_NOTEBOOK' },
+  { date: '2026-08-31', lunch: 4,  dinner: 4, dinnerNote: 'Zalo: Trưa Hiệp, Thành, Cường, Nam; chiều Hiệp, Thành, Nam, Thịnh. Lunch quyết toán = 4.', source: 'OWNER_NOTEBOOK_ZALO' },
+];
+
+/**
+ * Nạp số liệu quyết toán thực tế tháng 8/2026 vào QUYET_TOAN_NGAY an toàn & idempotent.
+ */
+function seedAugust2026ActualSettlement() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('Không tìm thấy Google Sheet đang hoạt động.');
+
+  const totalLunch = AUGUST_2026_ACTUAL_LUNCH.reduce((sum, item) => sum + item.lunch, 0);
+  const totalDinner = AUGUST_2026_ACTUAL_LUNCH.reduce((sum, item) => sum + item.dinner, 0);
+  if (totalLunch !== 181) {
+    throw new Error(`ASSERTION FAILED: Tổng suất trưa phải là 181, thực tế tính được ${totalLunch}. DỪNG LẠI!`);
+  }
+  if (totalDinner !== 8) {
+    throw new Error(`ASSERTION FAILED: Tổng ghi chú tối phải là 8, thực tế tính được ${totalDinner}. DỪNG LẠI!`);
+  }
+  if (AUGUST_2026_ACTUAL_LUNCH.length !== 19) {
+    throw new Error(`ASSERTION FAILED: Số ngày phải là 19, thực tế ${AUGUST_2026_ACTUAL_LUNCH.length}. DỪNG LẠI!`);
+  }
+
+  ensureSheet_(ss, APP.SHEETS.DAILY_SETTLEMENT, APP.HEADERS.DAILY_SETTLEMENT);
+  const sh = getSheet_(APP.SHEETS.DAILY_SETTLEMENT);
+
+  const existingMap = getMonthlySettlementMap_('2026-08');
+  const now = new Date();
+  const noteDesc = 'Đối soát lịch sử tháng 8/2026 theo sổ thực tế của hội cơm.';
+
+  // Kiểm tra xung đột dữ liệu thủ công
+  AUGUST_2026_ACTUAL_LUNCH.forEach(item => {
+    const ex = existingMap[item.date];
+    if (ex && ex.lunchActual !== null) {
+      if (ex.lunchActual !== item.lunch && !ex.source.startsWith('OWNER_NOTEBOOK')) {
+        throw new Error(`Xung đột dữ liệu ngày ${item.date}: Sheet có ${ex.lunchActual} suất (Source: ${ex.source}), dữ liệu nạp là ${item.lunch}. Dừng lại!`);
+      }
+    }
+  });
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    AUGUST_2026_ACTUAL_LUNCH.forEach(item => {
+      const ex = existingMap[item.date];
+      const row = [
+        item.date,
+        item.lunch,
+        item.dinner,
+        item.dinnerNote,
+        item.source,
+        APP.SETTLEMENT_STATES.RECONCILED,
+        noteDesc,
+        'SEED_AUGUST',
+        now,
+      ];
+      if (ex && ex.rowNumber) {
+        sh.getRange(ex.rowNumber, 1, 1, 9).setValues([row]);
+      } else {
+        sh.appendRow(row);
+      }
+    });
+
+    const augStats = {
+      totalSoftware: 165,
+      totalOfficial: 181,
+      diff: 16,
+      dinnerNotes: 8,
+    };
+    setMonthSettlementStatus_('2026-08', APP.MONTH_STATES.RECONCILING, noteDesc, 'SEED_AUGUST', augStats);
+  } finally {
+    lock.releaseLock();
+  }
+
+  return {
+    month: '2026-08',
+    lunchActual: totalLunch,
+    dinnerNoteCount: totalDinner,
+    daysReconciled: AUGUST_2026_ACTUAL_LUNCH.length,
   };
 }
 
@@ -695,6 +1068,8 @@ function getMonthlyHistory(memberId, monthKey) {
   const normalized = normalizeMonthKey_(monthKey);
   const states = getFinalBookingStateMap_(normalized);
   const closedDays = getClosedDayMap_(normalized);
+  const monthStatus = getMonthSettlementStatus_(normalized);
+  const isLocked = Boolean(monthStatus && monthStatus.status === APP.MONTH_STATES.LOCKED);
 
   const days = Object.keys(states)
     .map(key => states[key])
@@ -705,6 +1080,7 @@ function getMonthlyHistory(memberId, monthKey) {
       mealType: row.mealType,
       mealLabel: row.mealType === APP.MEAL_TYPES.DINNER ? 'Cơm tối' : 'Cơm trưa',
       updatedAt: formatDateTime_(row.updatedAt),
+      canSelfRemove: row.mealType === APP.MEAL_TYPES.LUNCH && !isLocked,
     }))
     .sort((a, b) => a.dateKey.localeCompare(b.dateKey) || (a.mealType === APP.MEAL_TYPES.LUNCH ? -1 : 1));
 
@@ -718,7 +1094,9 @@ function getMonthlyHistory(memberId, monthKey) {
     monthLabel: monthDisplay_(normalized),
     lunchCount,
     dinnerCount,
-    total: lunchCount + dinnerCount,
+    total: lunchCount, // Cơm trưa là phần duy nhất dùng để quyết toán
+    isLocked,
+    monthStatus: monthStatus.status || APP.MONTH_STATES.OPEN,
     days,
   };
 }
@@ -870,20 +1248,23 @@ function sendPreviousMonthSummaryIfNeeded_(now) {
  */
 function sendMonthlySummary_(monthKey, manual) {
   const summary = getMonthlySummary_(monthKey);
-  const subject = `📊 Tổng hợp suất ăn ${summary.monthLabel} — ${summary.total} suất`;
+  const subject = `📊 Tổng hợp quyết toán cơm trưa ${summary.monthLabel} — ${summary.totalOfficialLunch ?? summary.total} suất`;
+  const diffStr = (summary.diff >= 0 ? `+${summary.diff}` : `${summary.diff}`);
   const textRows = summary.rows.map((row, i) =>
-    `${i + 1}. ${row.name}: ${row.total} suất (Trưa: ${row.lunch}, Tối: ${row.dinner})`
+    `${i + 1}. ${row.name}: ${row.lunch} suất trưa`
   ).join('\n');
   const body = [
-    `TỔNG HỢP SUẤT ĂN ${summary.monthLabel.toUpperCase()}`,
+    `TỔNG HỢP QUYẾT TOÁN CƠM TRƯA ${summary.monthLabel.toUpperCase()}`,
     '',
-    `Tổng số suất: ${summary.total} suất`,
-    `- Cơm trưa: ${summary.totalLunch} suất`,
-    `- Cơm tối: ${summary.totalDinner} suất`,
+    `Tổng phần mềm: ${summary.totalSoftwareLunch ?? summary.totalLunch} suất`,
+    `Điều chỉnh thực tế: ${diffStr} suất`,
+    `TỔNG QUYẾT TOÁN CHÍNH THỨC: ${summary.totalOfficialLunch ?? summary.total} suất`,
+    summary.dinnerNotes > 0 ? `(Ghi chú: ${summary.dinnerNotes} suất cơm tối ghi nhận tham khảo, không tính tiền)` : '',
     '',
+    'Chi tiết phần mềm ghi nhận:',
     textRows || 'Chưa có dữ liệu.',
     manual ? '\n(Email được gửi thủ công từ Apps Script)' : '',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 
   MailApp.sendEmail({
     to: getConfig_('ADMIN_EMAIL', APP.ADMIN_EMAIL),
@@ -1066,7 +1447,7 @@ function findBookingRow_(sh, dateKey, memberId, mealType) {
  *   thì hệ thống VẪN TỰ ĐỘNG BÁO LUNCH bình thường.
  */
 function autoBookWeekdayIfNeeded_(now) {
-  if (isWeekend_(now) || isLocked_(now)) return;
+  if (!isMealServiceDay_(now) || isLocked_(now)) return;
 
   const dateKey = dateKey_(now);
   if (isClosedDay_(dateKey)) return;
@@ -1361,18 +1742,28 @@ function buildMonthlyEmailHtml_(summary) {
     <tr>
       <td style="padding:8px;border-bottom:1px solid #eee">${i + 1}</td>
       <td style="padding:8px;border-bottom:1px solid #eee">${escapeHtmlServer_(r.name)}</td>
-      <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${r.lunch}</td>
-      <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${r.dinner}</td>
-      <td style="padding:8px;border-bottom:1px solid #eee;text-align:right;font-weight:bold">${r.total}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;text-align:right;font-weight:bold">${r.lunch}</td>
     </tr>`).join('');
+
+  const diffStr = summary.diff >= 0 ? `+${summary.diff}` : `${summary.diff}`;
+  const dinnerNoteHtml = summary.dinnerNotes > 0
+    ? `<div style="margin-top:14px;padding:12px;background:#fef3c7;border-radius:8px;font-size:13px;color:#92400e;">
+        <strong>Ghi chú cơm tối:</strong> Có ${summary.dinnerNotes} lượt cơm tối được ghi nhận tham khảo, <em>không tính vào tiền quyết toán cơm trưa</em>.
+       </div>`
+    : '';
 
   return `
   <div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#111827">
-    <h2>📊 Tổng hợp suất ăn ${summary.monthLabel}</h2>
-    <div style="font-size:28px;font-weight:700;margin:14px 0">${summary.total} suất</div>
-    <div style="color:#6B7280;margin-bottom:14px">Trong đó: Trưa ${summary.totalLunch} suất · Tối ${summary.totalDinner} suất</div>
+    <h2>📊 Tổng hợp quyết toán cơm trưa — ${summary.monthLabel}</h2>
+    <div style="background:#f3f4f6;padding:16px;border-radius:10px;margin:14px 0;">
+      <div style="font-size:14px;color:#4b5563;">Tổng phần mềm: <strong>${summary.totalSoftwareLunch ?? summary.totalLunch}</strong> suất</div>
+      <div style="font-size:14px;color:#4b5563;">Điều chỉnh thực tế: <strong>${diffStr}</strong> suất</div>
+      <div style="font-size:26px;font-weight:700;color:#166534;margin-top:6px;">TỔNG QUYẾT TOÁN: ${summary.totalOfficialLunch ?? summary.total} suất</div>
+    </div>
+    ${dinnerNoteHtml}
+    <h3 style="margin-top:20px;font-size:15px;">Chi tiết cá nhân (Phần mềm ghi nhận)</h3>
     <table style="width:100%;border-collapse:collapse">
-      <thead><tr><th align="left">#</th><th align="left">Họ tên</th><th align="right">Trưa</th><th align="right">Tối</th><th align="right">Tổng</th></tr></thead>
+      <thead><tr><th align="left">#</th><th align="left">Họ tên</th><th align="right">Suất trưa</th></tr></thead>
       <tbody>${htmlRows}</tbody>
     </table>
   </div>`;

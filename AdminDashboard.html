@@ -190,22 +190,38 @@
       <button id="reopenDayBtn" class="btn green" onclick="reopenDay()" hidden>↩ Mở lại ngày</button>
       <span id="emailState" class="email-state"></span>
     </div>
-    <div class="status-row" style="border-top: 1px dashed var(--line-main); padding-top: 8px;">
-      <span id="reconcileBadge" class="status-badge unreconciled">⚪ Chưa đối soát</span>
-      <span id="reconcileInfo" class="muted"></span>
-      <input id="reconcileNote" class="note-input" placeholder="Ghi chú đối soát sổ (tùy chọn)">
-      <button id="reconcileBtn" class="btn green" onclick="reconcileDay()">✅ Đánh dấu đã đối soát</button>
-      <button id="unreconcileBtn" class="btn amber" onclick="unreconcileDay()" hidden>↩ Mở lại đối soát</button>
+  </div>
+
+  <!-- Vùng Quyết Toán Cơm Trưa Ngày -->
+  <div class="status-bar" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+      <div>
+        <div style="font-size:11px;font-weight:800;color:#166534;letter-spacing:0.05em;text-transform:uppercase;">QUYẾT TOÁN CƠM TRƯA NGÀY (SOURCE OF TRUTH)</div>
+        <div style="display:flex;gap:16px;align-items:baseline;margin-top:6px;flex-wrap:wrap;">
+          <span style="font-size:14px;color:#4b5563;">Phần mềm: <strong id="settleSoftware" style="font-size:18px;color:#1f2937;">0</strong> suất</span>
+          <span style="font-size:14px;color:#4b5563;">Thực tế / Quyết toán: <strong id="settleActual" style="font-size:22px;color:#166534;">0</strong> suất</span>
+          <span style="font-size:14px;color:#4b5563;">Chênh lệch: <strong id="settleDiff" style="font-size:18px;color:#2563eb;">0</strong></span>
+          <span id="settleBadge" class="status-badge"></span>
+        </div>
+        <div id="settleNoteRow" style="font-size:12px;color:#4b5563;margin-top:4px;"></div>
+        <div id="settleDinnerNoteRow" style="font-size:12px;color:#92400e;margin-top:2px;"></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <button class="btn green" onclick="editDailySettlementPrompt()">✏️ Sửa số thực tế</button>
+        <button id="settleReconcileBtn" class="btn primary" onclick="markDailyReconciled()">✅ Đánh dấu đã đối soát</button>
+        <button id="settleReopenBtn" class="btn ghost" onclick="reopenDailySettlement()" hidden>↩ Mở lại đối soát</button>
+        <button id="weekendServiceBtn" class="btn ghost" onclick="toggleWeekendService()" hidden>📅 Ăn trưa cuối tuần</button>
+      </div>
     </div>
   </div>
 
   <!-- Summary Cards -->
   <div class="cards">
     <div class="card"><span class="label">Thành viên hoạt động</span><strong id="countActive">0</strong></div>
-    <div class="card"><span class="label">Trưa đã đặt</span><strong id="countLunchBooked" style="color:var(--olive-main);">0</strong></div>
-    <div class="card"><span class="label">Tối đã đặt</span><strong id="countDinnerBooked" style="color:#b45309;">0</strong></div>
-    <div class="card"><span class="label">Tổng suất ăn</span><strong id="countTotalBooked" style="color:var(--accent-dark-main);">0</strong></div>
-    <div class="card"><span class="label">Chưa báo trưa</span><strong id="countLunchNone" style="color:var(--muted-main);">0</strong></div>
+    <div class="card"><span class="label">Phần mềm (Trưa)</span><strong id="countLunchBooked" style="color:var(--olive-main);">0</strong></div>
+    <div class="card"><span class="label">Quyết toán chính thức</span><strong id="countOfficialLunch" style="color:#166534;">0</strong></div>
+    <div class="card"><span class="label">Chênh lệch</span><strong id="countDiff" style="color:#2563eb;">0</strong></div>
+    <div class="card"><span class="label">Ghi chú tối</span><strong id="countDinnerBooked" style="color:#b45309;">0</strong></div>
   </div>
 
   <!-- Main Management Table -->
@@ -248,10 +264,17 @@
     <div class="panel">
       <div class="section-head">
         <div>
-          <h2 id="monthTitle">Tổng hợp tháng</h2>
+          <h2 id="monthTitle">Tổng hợp quyết toán tháng</h2>
           <div class="sub" id="monthTotal"></div>
         </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <span id="monthStatusBadge" class="status-badge"></span>
+          <button id="monthReconcileBtn" class="btn ghost" onclick="changeMonthStatus('RECONCILING')">Mở đối soát</button>
+          <button id="monthLockBtn" class="btn danger" onclick="changeMonthStatus('LOCKED')">🔒 Khóa tháng</button>
+          <button id="monthUnlockBtn" class="btn ghost" onclick="changeMonthStatus('OPEN')" hidden>🔓 Mở khóa</button>
+        </div>
       </div>
+      <div id="monthOverview" style="background:#f9fafb;padding:12px;border-radius:8px;margin-bottom:12px;font-size:13px;line-height:1.6;border:1px solid var(--line-main);"></div>
       <div class="summary-list" id="monthSummary"></div>
     </div>
 
@@ -308,17 +331,118 @@
     document.getElementById('cutoff').value = state.cutoff || '08:00';
 
     renderDayStatus();
-    renderReconciliation();
+    renderDailySettlement();
 
     const counts = state.counts || {};
+    const s = state.dailySettlement || {};
     document.getElementById('countActive').textContent = counts.active || 0;
     document.getElementById('countLunchBooked').textContent = counts.lunchBooked || 0;
-    document.getElementById('countDinnerBooked').textContent = counts.dinnerBooked || 0;
-    document.getElementById('countTotalBooked').textContent = counts.totalBooked || 0;
-    document.getElementById('countLunchNone').textContent = counts.lunchNone || 0;
+    document.getElementById('countOfficialLunch').textContent = s.officialLunch ?? counts.lunchBooked ?? 0;
+    const diff = s.diff ?? 0;
+    document.getElementById('countDiff').textContent = diff >= 0 ? `+${diff}` : `${diff}`;
+    document.getElementById('countDinnerBooked').textContent = (s.dinnerNoteCount || 0) + (counts.dinnerBooked || 0);
 
     renderTable();
     renderMonth();
+  }
+
+  function renderDailySettlement() {
+    const s = state.dailySettlement || {};
+    document.getElementById('settleSoftware').textContent = s.softwareLunch ?? 0;
+    document.getElementById('settleActual').textContent = s.officialLunch ?? 0;
+    const diff = s.diff ?? 0;
+    const diffEl = document.getElementById('settleDiff');
+    diffEl.textContent = diff >= 0 ? `+${diff}` : `${diff}`;
+    diffEl.style.color = diff > 0 ? '#166534' : diff < 0 ? '#dc2626' : '#2563eb';
+
+    const badge = document.getElementById('settleBadge');
+    const isReconciled = s.status === 'RECONCILED' || s.status === 'LOCKED';
+    badge.className = 'status-badge ' + (isReconciled ? 'reconciled' : 'unreconciled');
+    badge.textContent = s.status === 'RECONCILED' ? '✅ Đã đối soát' : s.status === 'LOCKED' ? '🔒 Đã chốt' : '⚪ Dự thảo (DRAFT)';
+
+    document.getElementById('settleReconcileBtn').hidden = isReconciled;
+    document.getElementById('settleReopenBtn').hidden = !isReconciled;
+
+    const noteText = s.note ? `Ghi chú: ${s.note}` : '';
+    const srcText = s.source ? `Nguồn: ${s.source}` : '';
+    document.getElementById('settleNoteRow').textContent = [srcText, noteText].filter(Boolean).join(' · ');
+
+    const dinnerNoteText = (s.dinnerNoteCount > 0 || s.dinnerNote)
+      ? `🌙 Cơm tối ghi chú: ${s.dinnerNoteCount || 0} suất ${s.dinnerNote ? `— ${s.dinnerNote}` : ''} (KHÔNG TÍNH VÀO TIỀN)`
+      : '';
+    document.getElementById('settleDinnerNoteRow').textContent = dinnerNoteText;
+
+    const wkBtn = document.getElementById('weekendServiceBtn');
+    if (s.isWeekend) {
+      wkBtn.hidden = false;
+      if (s.isWeekendService) {
+        wkBtn.textContent = '🟢 Đang tổ chức ăn trưa cuối tuần';
+        wkBtn.className = 'btn green';
+      } else {
+        wkBtn.textContent = '⚪ Bật tổ chức ăn trưa cuối tuần';
+        wkBtn.className = 'btn ghost';
+      }
+    } else {
+      wkBtn.hidden = true;
+    }
+  }
+
+  function editDailySettlementPrompt() {
+    const s = state.dailySettlement || {};
+    const currentActual = s.lunchActual !== null ? s.lunchActual : (s.softwareLunch ?? 0);
+    const inputActual = prompt(`Nhập SỐ SUẤT CƠM TRƯA THỰC TẾ ngày ${dateValue()}:`, String(currentActual));
+    if (inputActual === null) return;
+    const actualNum = parseInt(inputActual.trim(), 10);
+    if (isNaN(actualNum) || actualNum < 0) return toast('Số suất trưa phải là số nguyên >= 0.');
+
+    const currentDinner = s.dinnerNoteCount || 0;
+    const inputDinner = prompt(`Nhập SỐ SUẤT CƠM TỐI GHI CHÚ (tham khảo, không tính tiền):`, String(currentDinner));
+    if (inputDinner === null) return;
+    const dinnerNum = parseInt(inputDinner.trim(), 10);
+    if (isNaN(dinnerNum) || dinnerNum < 0) return toast('Số suất tối phải là số nguyên >= 0.');
+
+    let dinnerNote = s.dinnerNote || '';
+    if (dinnerNum > 0) {
+      const inputDinnerNote = prompt(`Nhập GHI CHÚ BỐI CẢNH/NGƯỜI ĂN TỐI:`, dinnerNote);
+      if (inputDinnerNote !== null) dinnerNote = inputDinnerNote.trim();
+    }
+
+    const note = prompt(`Nhập GHI CHÚ ĐỐI SOÁT (tùy chọn):`, s.note || '');
+    if (note === null) return;
+
+    setLoading(true);
+    server().adminSaveDailySettlement(dateValue(), actualNum, dinnerNum, dinnerNote, 'DRAFT', note.trim(), monthValue());
+  }
+
+  function markDailyReconciled() {
+    const s = state.dailySettlement || {};
+    const actual = s.officialLunch ?? 0;
+    if (!confirm(`Xác nhận ĐỐI SOÁT ngày ${dateValue()} với ${actual} suất cơm trưa thực tế?`)) return;
+    setLoading(true);
+    server().adminSaveDailySettlement(dateValue(), actual, s.dinnerNoteCount || 0, s.dinnerNote || '', 'RECONCILED', s.note || '', monthValue());
+  }
+
+  function reopenDailySettlement() {
+    const s = state.dailySettlement || {};
+    if (!confirm(`Mở lại đối soát ngày ${dateValue()} (chuyển về DRAFT)?`)) return;
+    setLoading(true);
+    server().adminSaveDailySettlement(dateValue(), s.lunchActual, s.dinnerNoteCount || 0, s.dinnerNote || '', 'DRAFT', s.note || '', monthValue());
+  }
+
+  function toggleWeekendService() {
+    const s = state.dailySettlement || {};
+    const newState = !s.isWeekendService;
+    const actionText = newState ? 'BẬT tổ chức ăn trưa' : 'TẮT tổ chức ăn trưa';
+    if (!confirm(`${actionText} cho ngày cuối tuần ${dateValue()}?`)) return;
+    setLoading(true);
+    server().adminToggleWeekendServiceDay(dateValue(), newState, monthValue());
+  }
+
+  function changeMonthStatus(newStatus) {
+    const statusLabel = newStatus === 'LOCKED' ? 'KHÓA CHỐT SỔ' : newStatus === 'RECONCILING' ? 'MỞ ĐỐI SOÁT' : 'MỞ KHÓA (OPEN)';
+    if (!confirm(`Xác nhận ${statusLabel} cho tháng ${monthValue()}?`)) return;
+    setLoading(true);
+    server().adminSetMonthStatus(monthValue(), newStatus, '', dateValue());
   }
 
   function renderDayStatus() {
@@ -342,37 +466,6 @@
         : `Email trưa: đã gửi ${email.total ?? 0} suất`;
   }
 
-  function renderReconciliation() {
-    const rec = state.reconciliation || { status: 'OPEN' };
-    const badge = document.getElementById('reconcileBadge');
-    const info = document.getElementById('reconcileInfo');
-    const btnReconcile = document.getElementById('reconcileBtn');
-    const btnUnreconcile = document.getElementById('unreconcileBtn');
-
-    if (rec.status === 'RECONCILED') {
-      badge.className = 'status-badge reconciled';
-      badge.textContent = '✅ Đã đối soát ngày';
-      info.textContent = rec.reconciledAt ? `(Đối soát lúc ${rec.reconciledAt} bởi ${rec.reconciledBy || 'Admin'})` : '';
-      btnReconcile.hidden = false;
-      btnReconcile.textContent = '✅ Cập nhật đối soát';
-      btnUnreconcile.hidden = false;
-    } else if (rec.status === 'NEEDS_REVIEW') {
-      badge.className = 'status-badge needs-review';
-      badge.textContent = '⚠️ Dữ liệu thay đổi — Cần đối soát lại!';
-      info.textContent = rec.reconciledAt ? `(Đối soát cũ: ${rec.reconciledAt})` : '';
-      btnReconcile.hidden = false;
-      btnReconcile.textContent = '✅ Đối soát lại ngày này';
-      btnUnreconcile.hidden = false;
-    } else {
-      badge.className = 'status-badge unreconciled';
-      badge.textContent = '⚪ Chưa đối soát';
-      info.textContent = '';
-      btnReconcile.hidden = false;
-      btnReconcile.textContent = '✅ Đánh dấu đã đối soát';
-      btnUnreconcile.hidden = true;
-    }
-  }
-
   function closeDay() {
     const note = document.getElementById('closedDayNote').value.trim();
     if (!confirm(`KHÓA ngày ${dateValue()} là ngày nghỉ? Dữ liệu đặt cơm cũ vẫn được lưu giữ an toàn.`)) return;
@@ -384,19 +477,6 @@
     if (!confirm(`MỞ LẠI ngày ${dateValue()}? Toàn bộ suất ăn đã đặt trước đó sẽ được khôi phục nguyên vẹn.`)) return;
     setLoading(true);
     server().adminReopenDay(dateValue(), monthValue());
-  }
-
-  function reconcileDay() {
-    const note = document.getElementById('reconcileNote').value.trim();
-    if (!confirm(`Xác nhận ĐỐI SOÁT / CHỐT SỔ ngày ${dateValue()}?`)) return;
-    setLoading(true);
-    server().adminReconcileDay(dateValue(), note, monthValue());
-  }
-
-  function unreconcileDay() {
-    if (!confirm(`Mở lại đối soát ngày ${dateValue()} (trạng thái Chưa đối soát)?`)) return;
-    setLoading(true);
-    server().adminReopenReconciliation(dateValue(), monthValue());
   }
 
   function renderTable() {
@@ -444,7 +524,7 @@
           </div>
         </td>
         <td style="text-align:center;">
-          <span class="total-badge ${totalBadgeClass}">${row.total}</span>
+          <span class="total-badge ${totalBadgeClass}">${row.lunch.status === 'BOOKED' ? 1 : 0}</span>
         </td>
         <td>
           <label class="switch"><input type="checkbox" ${row.autoBook ? 'checked' : ''} onchange="setAuto('${attr(row.memberId)}', this.checked)"> T2–T6</label>
@@ -458,24 +538,53 @@
 
   function renderMonth() {
     const m = state.monthlySummary || { rows: [], total: 0, totalLunch: 0, totalDinner: 0, monthLabel: '' };
-    document.getElementById('monthTitle').textContent = `Tổng hợp ${m.monthLabel || ''}`;
-    document.getElementById('monthTotal').textContent = `Tổng cộng: ${m.total || 0} suất (Trưa: ${m.totalLunch || 0} · Tối: ${m.totalDinner || 0})`;
+    document.getElementById('monthTitle').textContent = `Tổng hợp quyết toán ${m.monthLabel || ''}`;
 
-    const rowsHtml = (m.rows || []).map((row, i) =>
-      `<div class="summary-row">
+    const offLunch = m.totalOfficialLunch ?? m.total ?? 0;
+    const swLunch = m.totalSoftwareLunch ?? m.totalLunch ?? 0;
+    const diff = m.diff ?? (offLunch - swLunch);
+    const diffStr = diff >= 0 ? `+${diff}` : `${diff}`;
+    const dinnerNotes = m.dinnerNotes ?? m.totalDinner ?? 0;
+
+    document.getElementById('monthTotal').textContent = `Quyết toán chính thức: ${offLunch} suất trưa (Phần mềm: ${swLunch} · Điều chỉnh: ${diffStr})`;
+
+    const monthBadge = document.getElementById('monthStatusBadge');
+    const mStatus = m.monthStatus || 'OPEN';
+    monthBadge.className = 'status-badge ' + (mStatus === 'LOCKED' ? 'closed' : mStatus === 'RECONCILING' ? 'needs-review' : 'open');
+    monthBadge.textContent = mStatus === 'LOCKED' ? '🔒 Đã chốt sổ (LOCKED)' : mStatus === 'RECONCILING' ? '🟡 Đang đối soát' : '🟢 Đang mở (OPEN)';
+
+    document.getElementById('monthReconcileBtn').hidden = mStatus === 'RECONCILING' || mStatus === 'LOCKED';
+    document.getElementById('monthLockBtn').hidden = mStatus === 'LOCKED';
+    document.getElementById('monthUnlockBtn').hidden = mStatus !== 'LOCKED';
+
+    document.getElementById('monthOverview').innerHTML = `
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <div>
+          <div>Phần mềm ghi nhận: <strong>${swLunch}</strong> suất trưa</div>
+          <div>Điều chỉnh thực tế: <strong style="color:${diff >= 0 ? '#166534' : '#dc2626'};">${diffStr}</strong> suất</div>
+          <div style="font-size:16px;font-weight:700;color:#166534;margin-top:4px;">TỔNG QUYẾT TOÁN CHÍNH THỨC: ${offLunch} SUẤT TRƯA</div>
+        </div>
+        <div style="max-width:320px;font-size:12px;color:#92400e;background:#fef3c7;padding:8px 12px;border-radius:6px;">
+          🌙 <strong>Ghi chú cơm tối:</strong> ${dinnerNotes} suất được ghi nhận tham khảo. <em>Tuyệt đối không tính vào tiền quyết toán cơm trưa.</em>
+        </div>
+      </div>
+    `;
+
+    const rowsHtml = (m.rows || []).map((row, i) => {
+      const dinnerTag = row.dinner > 0 ? `<span style="color:#b45309;font-size:11px;margin-left:4px;">(${row.dinner} tối tham khảo)</span>` : '';
+      return `<div class="summary-row">
         <span>${i + 1}. ${esc(row.name)}${row.active ? '' : ' (tạm ngừng)'}</span>
         <span>
-          <span style="color:var(--olive-main);font-weight:700;">${row.lunch || 0} trưa</span> ·
-          <span style="color:#b45309;font-weight:700;">${row.dinner || 0} tối</span> ·
-          <strong>${row.total || 0} suất</strong>
+          <strong style="color:#166534;">${row.lunch || 0} suất trưa</strong>
+          ${dinnerTag}
         </span>
-      </div>`
-    ).join('') || '<div class="summary-row"><span>Chưa có dữ liệu suất ăn.</span><strong>0</strong></div>';
+      </div>`;
+    }).join('') || '<div class="summary-row"><span>Chưa có dữ liệu suất ăn.</span><strong>0</strong></div>';
 
     document.getElementById('monthSummary').innerHTML = `
       <div class="summary-row summary-header">
         <span>Họ tên thành viên</span>
-        <span>Trưa / Tối / Tổng</span>
+        <span>Suất trưa quyết toán</span>
       </div>
       ${rowsHtml}`;
   }

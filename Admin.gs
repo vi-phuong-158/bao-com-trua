@@ -32,6 +32,10 @@ const ADMIN_DASHBOARD = {
     ADMIN_MEMBER_ACTIVE: 'Kích hoạt thành viên',
     ADMIN_MEMBER_INACTIVE: 'Tạm ngừng thành viên',
     ADMIN_MEMBER_ADD: 'Thêm thành viên',
+    ADMIN_SAVE_DAILY_SETTLEMENT: 'Sửa quyết toán thực tế',
+    ADMIN_SET_MONTH_STATUS: 'Đổi trạng thái tháng',
+    ENABLE_WEEKEND_SERVICE: 'Bật ăn cuối tuần',
+    DISABLE_WEEKEND_SERVICE: 'Tắt ăn cuối tuần',
   },
 };
 
@@ -133,6 +137,19 @@ function adminGetDashboardData(dateKey, monthKey) {
   counts.cancelled = counts.lunchCancelled;
   counts.none = counts.lunchNone;
 
+  const dailySettlement = getDailySettlement_(selectedDate);
+  const softwareLunch = counts.lunchBooked;
+  const lunchActual = (dailySettlement && dailySettlement.lunchActual !== null) ? dailySettlement.lunchActual : null;
+  const officialLunch = lunchActual !== null ? lunchActual : softwareLunch;
+  const diff = officialLunch - softwareLunch;
+  const dinnerNoteCount = dailySettlement ? dailySettlement.dinnerNoteCount : 0;
+  const dinnerNote = dailySettlement ? dailySettlement.dinnerNote : '';
+  const settlementStatus = dailySettlement ? dailySettlement.status : 'DRAFT';
+  const settlementSource = dailySettlement ? dailySettlement.source : (lunchActual !== null ? 'ADMIN' : 'SOFTWARE');
+  const settlementNote = dailySettlement ? dailySettlement.note : '';
+  const isWeekendDay = isWeekend_(dateFromKey_(selectedDate));
+  const isWeekendService = isMealServiceDay_(dateFromKey_(selectedDate));
+
   return {
     ok: true,
     adminEmail: getAdminEmail_(),
@@ -144,6 +161,19 @@ function adminGetDashboardData(dateKey, monthKey) {
     reconciliation,
     emailStatus,
     counts,
+    dailySettlement: {
+      softwareLunch,
+      lunchActual,
+      officialLunch,
+      diff,
+      dinnerNoteCount,
+      dinnerNote,
+      status: settlementStatus,
+      source: settlementSource,
+      note: settlementNote,
+      isWeekend: isWeekendDay,
+      isWeekendService,
+    },
     rows,
     monthlySummary: getMonthlySummary_(selectedMonth),
   };
@@ -459,4 +489,58 @@ function adminStatusLabel_(status) {
 function adminSourceLabel_(source) {
   if (!source) return '';
   return ADMIN_DASHBOARD.SOURCE_LABELS[source] || source;
+}
+
+/**
+ * Lưu số quyết toán thực tế cơm trưa và ghi chú cơm tối cho ngày.
+ */
+function adminSaveDailySettlement(dateKey, lunchActual, dinnerNoteCount, dinnerNote, status, note, monthKey) {
+  assertAdmin_();
+  const selectedDate = normalizeDateKey_(dateKey);
+  const adminEmail = getAdminEmail_();
+
+  upsertDailySettlement_(selectedDate, {
+    lunchActual: lunchActual !== '' && lunchActual !== null ? Number(lunchActual) : null,
+    dinnerNoteCount: dinnerNoteCount !== '' && dinnerNoteCount !== null ? Number(dinnerNoteCount) : 0,
+    dinnerNote,
+    status: status || APP.SETTLEMENT_STATES.DRAFT,
+    note,
+    source: 'ADMIN',
+  }, adminEmail);
+
+  appendAudit_(selectedDate, { id: 'ADMIN', name: 'Admin' }, APP.MEAL_TYPES.LUNCH, 'ADMIN_SAVE_DAILY_SETTLEMENT', 'ADMIN', `Quyết toán trưa: ${lunchActual}, ghi chú tối: ${dinnerNoteCount}`, new Date());
+  return adminGetDashboardData(selectedDate, monthKey);
+}
+
+/**
+ * Cập nhật trạng thái đối soát/chốt sổ của tháng (OPEN, RECONCILING, LOCKED).
+ */
+function adminSetMonthStatus(monthKey, status, note, dateKey) {
+  assertAdmin_();
+  const selectedMonth = normalizeMonthKey_(monthKey);
+  const adminEmail = getAdminEmail_();
+  const summary = getMonthlySummary_(selectedMonth);
+
+  setMonthSettlementStatus_(selectedMonth, status, note, adminEmail, {
+    totalSoftware: summary.totalSoftwareLunch,
+    totalOfficial: summary.totalOfficialLunch,
+    diff: summary.diff,
+    dinnerNotes: summary.dinnerNotes,
+  });
+
+  appendAudit_(selectedMonth + '-01', { id: 'ADMIN', name: 'Admin' }, APP.MEAL_TYPES.LUNCH, 'ADMIN_SET_MONTH_STATUS', 'ADMIN', `Trạng thái tháng: ${status}`, new Date());
+  return adminGetDashboardData(dateKey, selectedMonth);
+}
+
+/**
+ * Bật/tắt chế độ tổ chức ăn trưa cho ngày cuối tuần (SERVICE_DAY).
+ */
+function adminToggleWeekendServiceDay(dateKey, enabled, monthKey) {
+  assertAdmin_();
+  const selectedDate = normalizeDateKey_(dateKey);
+  const val = enabled ? '1' : '0';
+  setConfigValue_('SERVICE_DAY_' + selectedDate, val);
+
+  appendAudit_(selectedDate, { id: 'ADMIN', name: 'Admin' }, APP.MEAL_TYPES.LUNCH, enabled ? 'ENABLE_WEEKEND_SERVICE' : 'DISABLE_WEEKEND_SERVICE', 'ADMIN', `Tổ chức ăn trưa cuối tuần: ${enabled}`, new Date());
+  return adminGetDashboardData(selectedDate, monthKey);
 }
