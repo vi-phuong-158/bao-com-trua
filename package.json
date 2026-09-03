@@ -1,0 +1,9 @@
+{
+  "name": "bao-com-trua",
+  "version": "1.0.0",
+  "description": "Hệ thống Báo cơm trưa và quản trị suất ăn nội bộ",
+  "scripts": {
+    "test": "node --test tests/logic.test.js",
+    "deploy": "node scripts/deploy-dual-webapps.js"
+  }
+}

@@ -117,26 +117,29 @@ Hệ thống tự tạo ID cho từng người và tự điền `TRUE`.
 
 ---
 
-## 5. Deploy thành Web App
+## 5. Triển khai hệ thống (Canonical Dual Deployment)
 
-Apps Script → **Deploy → New deployment**
+Hệ thống hoạt động với kiến trúc 2 Web App độc lập từ cùng một Apps Script project:
+1. **Public Web App**: Chế độ ẩn danh (`USER_DEPLOYING` / `ANYONE_ANONYMOUS`), người dùng báo cơm bình thường, **hoàn toàn không cần đăng nhập Google**.
+2. **Admin Web App**: Chế độ danh tính người dùng (`USER_ACCESSING` / `ANYONE`), bắt buộc đăng nhập tài khoản Google và chỉ cho phép 2 Admin (`vingocphuong.92@gmail.com` và `anmphongandn@gmail.com`).
 
-Chọn:
+**Lệnh deploy duy nhất (Canonical Deployment Command):**
+```bash
+node scripts/deploy-dual-webapps.js
+```
+*(hoặc `npm run deploy`)*
 
-**Web app**
+Lệnh này tự động cập nhật cả 2 deployment ID hiện có, thiết lập đúng quyền `executeAs`/`access` cho từng deployment và in ra thông tin xác thực sau khi hoàn tất.
 
-Thiết lập:
-
-- Execute as: **Me**
-- Who has access: **Anyone**
-
-Bấm **Deploy**.
-
-Google trả về một URL dạng:
-
-`https://script.google.com/macros/s/.../exec`
-
-Đây là link gửi vào nhóm Zalo hoặc tạo QR Code.
+**Các đường link chính thức:**
+- **Public URL (gửi vào nhóm Zalo / tạo QR Code):**
+  ```
+  https://script.google.com/macros/s/AKfycbwZAqISWkG8MWJC_QUd5446qH-OHyLd5jU6MS63upKDqKspPG0tZAKYrTP05od6YPz8_Q/exec
+  ```
+- **Admin URL (dành riêng cho Admin quản lý suất ăn):**
+  ```
+  https://script.google.com/macros/s/AKfycbx1rZMgkbvwM7wfrGMb50XZt1NDmEzr_4T0oUdG-91Q9DW2REt4Gp8d8xUd9ItiKziFXA/exec?admin=1
+  ```
 
 ---
 
@@ -250,7 +253,9 @@ Nhật ký `NHAT_KY` vẫn lưu mọi lần báo/hủy để có thể đối ch
 
 ## 11. Admin Dashboard, Cơm trưa & Cơm tối, và Đối soát ngày
 
-Admin Dashboard chạy an toàn trong Google Sheet, không đưa quyền quản trị vào Web App public. Sau `clasp push` và reload Sheet, mở menu **🍚 Quản trị suất ăn → Mở Admin Dashboard** bằng tài khoản `vingocphuong.92@gmail.com` hoặc `anmphongandn@gmail.com`.
+Admin Dashboard chạy an toàn trong Google Sheet hoặc qua **Admin URL**:
+- Trong Google Sheet: mở menu **🍚 Quản trị suất ăn → Mở Admin Dashboard**.
+- Trực tiếp qua link Web: mở **Admin URL** (`https://script.google.com/macros/s/AKfycbx1rZMgkbvwM7wfrGMb50XZt1NDmEzr_4T0oUdG-91Q9DW2REt4Gp8d8xUd9ItiKziFXA/exec?admin=1`) bằng tài khoản `vingocphuong.92@gmail.com` hoặc `anmphongandn@gmail.com`.
 
 - **Quản lý Cơm trưa & Cơm tối:** Admin có thể chỉnh sửa chính xác từng ngày (kể cả quá khứ), từng người và từng bữa ăn (Trưa hoặc Tối).
 - **Đối soát / Chốt sổ ngày:** Admin kiểm tra số suất thực tế và bấm **Đánh dấu đã đối soát**. Nếu sau đó có thay đổi, hệ thống sẽ tự động cảnh báo **Cần đối soát lại**.
