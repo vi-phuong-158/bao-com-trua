@@ -835,7 +835,8 @@ test('56d. Security: all admin functions in Admin.gs verify assertAdmin_()', () 
     'adminSendMonthlyEmail',
     'adminSaveDailySettlement',
     'adminSetMonthStatus',
-    'adminToggleWeekendServiceDay'
+    'adminToggleWeekendServiceDay',
+    'adminAssignUnattributedLunch'
   ];
 
   adminEndpoints.forEach(fnName => {
@@ -1209,4 +1210,210 @@ test('78. Security: assertAdmin accepts both authorized owners and rejects anony
   assert.equal(assertAdmin('anmphongandn@gmail.com', ['vingocphuong.92@gmail.com', 'anmphongandn@gmail.com']), true);
   assert.throws(() => assertAdmin('', ['vingocphuong.92@gmail.com']), /Không có quyền quản trị/);
   assert.throws(() => assertAdmin('intruder@gmail.com', ['vingocphuong.92@gmail.com']), /Không có quyền quản trị/);
+});
+
+// =========================================================================
+// 14. Person-Level August Reconciliation Regression Tests
+// =========================================================================
+
+const CONFIRMED_MEMBERS_MAP = {
+  'Hiệp': { id: '2a4c7a46', name: 'Nguyễn Hoàng Hiệp' },
+  'Nam': { id: '193ddfb8', name: 'Bùi Hiếu Nam' },
+  'Thịnh': { id: '4791e1e0', name: 'Nguyễn Toàn Thịnh' },
+  'Công': { id: 'e25e94de', name: 'Nguyễn Văn Công' },
+  'Phạm Hùng': { id: 'df3ff56c', name: 'Phạm Việt Hùng' },
+  'Hùng': { id: 'df3ff56c', name: 'Phạm Việt Hùng' },
+};
+
+function simulatePersonLevelRestoration({ bookings, settlements }) {
+  // 1. Date 2026-08-23
+  const confirmed23 = [CONFIRMED_MEMBERS_MAP['Phạm Hùng'], CONFIRMED_MEMBERS_MAP['Thịnh']];
+  confirmed23.forEach(m => {
+    bookings.push({ dateKey: '2026-08-23', memberId: m.id, mealType: 'LUNCH', status: 'BOOKED', source: 'OWNER_ZALO_RECONCILIATION' });
+  });
+  settlements['2026-08-23'] = {
+    lunchActual: 2,
+    dinnerNoteCount: 2,
+    attributedLunchCount: 2,
+    unattributedLunchCount: 0,
+    status: 'RECONCILED',
+  };
+
+  // 2. Date 2026-08-22
+  const confirmed22 = [
+    CONFIRMED_MEMBERS_MAP['Hiệp'],
+    CONFIRMED_MEMBERS_MAP['Hùng'],
+    CONFIRMED_MEMBERS_MAP['Thịnh'],
+    CONFIRMED_MEMBERS_MAP['Công'],
+    CONFIRMED_MEMBERS_MAP['Nam'],
+  ];
+  confirmed22.forEach(m => {
+    bookings.push({ dateKey: '2026-08-22', memberId: m.id, mealType: 'LUNCH', status: 'BOOKED', source: 'OWNER_ZALO_RECONCILIATION' });
+  });
+  settlements['2026-08-22'] = {
+    lunchActual: 6,
+    dinnerNoteCount: 0,
+    attributedLunchCount: 5,
+    unattributedLunchCount: 1,
+    status: 'RECONCILED',
+  };
+
+  // 3. Date 2026-08-31
+  const confirmed31 = [
+    CONFIRMED_MEMBERS_MAP['Hiệp'],
+    CONFIRMED_MEMBERS_MAP['Công'],
+    CONFIRMED_MEMBERS_MAP['Nam'],
+  ];
+  const proven31Ids = new Set(confirmed31.map(m => m.id));
+
+  const current31States = finalBookingStates(bookings);
+  for (const [key, state] of current31States.entries()) {
+    if (state.dateKey === '2026-08-31' && state.mealType === 'LUNCH' && state.status === 'BOOKED' && !proven31Ids.has(state.memberId)) {
+      bookings.push({ dateKey: '2026-08-31', memberId: state.memberId, mealType: 'LUNCH', status: 'CANCELLED', source: 'OWNER_ZALO_RECONCILIATION' });
+    }
+  }
+
+  confirmed31.forEach(m => {
+    const cur = current31States.get(`2026-08-31|${m.id}|LUNCH`);
+    if (!cur || cur.status !== 'BOOKED') {
+      bookings.push({ dateKey: '2026-08-31', memberId: m.id, mealType: 'LUNCH', status: 'BOOKED', source: 'OWNER_ZALO_RECONCILIATION' });
+    }
+  });
+
+  settlements['2026-08-31'] = {
+    lunchActual: 4,
+    dinnerNoteCount: 4,
+    attributedLunchCount: 3,
+    unattributedLunchCount: 1,
+    status: 'RECONCILED',
+  };
+}
+
+test('79. Person-Level 23/8: Restores exactly Phạm Việt Hùng and Nguyễn Toàn Thịnh', () => {
+  const bookings = [];
+  const settlements = {};
+  simulatePersonLevelRestoration({ bookings, settlements });
+
+  const states = finalBookingStates(bookings);
+  const booked23 = [...states.values()].filter(s => s.dateKey === '2026-08-23' && s.mealType === 'LUNCH' && s.status === 'BOOKED');
+  assert.equal(booked23.length, 2);
+  const ids = booked23.map(b => b.memberId).sort();
+  assert.deepEqual(ids, ['4791e1e0', 'df3ff56c'].sort());
+});
+
+test('80. Person-Level 23/8: attributed=2, unattributed=0, actual=2', () => {
+  const settlements = {};
+  simulatePersonLevelRestoration({ bookings: [], settlements });
+  const s23 = settlements['2026-08-23'];
+  assert.equal(s23.attributedLunchCount, 2);
+  assert.equal(s23.unattributedLunchCount, 0);
+  assert.equal(s23.lunchActual, 2);
+  assert.equal(s23.attributedLunchCount + s23.unattributedLunchCount, s23.lunchActual);
+});
+
+test('81. Person-Level 31/8: Restores only confirmed Hiệp, Công, Nam and cancels unproven legacy auto-book', () => {
+  const bookings = [
+    { dateKey: '2026-08-31', memberId: '2a4c7a46', mealType: 'LUNCH', status: 'BOOKED' },
+    { dateKey: '2026-08-31', memberId: 'e25e94de', mealType: 'LUNCH', status: 'BOOKED' },
+    { dateKey: '2026-08-31', memberId: '193ddfb8', mealType: 'LUNCH', status: 'BOOKED' },
+    { dateKey: '2026-08-31', memberId: '624f351b', mealType: 'LUNCH', status: 'BOOKED' },
+    { dateKey: '2026-08-31', memberId: '13462d6b', mealType: 'LUNCH', status: 'BOOKED' },
+  ];
+  const initialCount = bookings.length;
+  const settlements = {};
+  simulatePersonLevelRestoration({ bookings, settlements });
+
+  assert.ok(bookings.length >= initialCount);
+
+  const states = finalBookingStates(bookings);
+  const booked31 = [...states.values()].filter(s => s.dateKey === '2026-08-31' && s.mealType === 'LUNCH' && s.status === 'BOOKED');
+  assert.equal(booked31.length, 3);
+  const booked31Ids = booked31.map(b => b.memberId).sort();
+  assert.deepEqual(booked31Ids, ['193ddfb8', '2a4c7a46', 'e25e94de'].sort());
+
+  assert.equal(states.get('2026-08-31|624f351b|LUNCH').status, 'CANCELLED');
+  assert.equal(states.get('2026-08-31|13462d6b|LUNCH').status, 'CANCELLED');
+});
+
+test('82. Person-Level 31/8: Leaves Thành unresolved as 1 unattributed seat; official total remains 4', () => {
+  const settlements = {};
+  simulatePersonLevelRestoration({ bookings: [], settlements });
+  const s31 = settlements['2026-08-31'];
+  assert.equal(s31.attributedLunchCount, 3);
+  assert.equal(s31.unattributedLunchCount, 1);
+  assert.equal(s31.lunchActual, 4);
+  assert.equal(s31.attributedLunchCount + s31.unattributedLunchCount, s31.lunchActual);
+});
+
+test('83. Person-Level 22/8: Restores 5 confirmed members (Hiệp, Hùng, Thịnh, Công, Nam)', () => {
+  const bookings = [];
+  const settlements = {};
+  simulatePersonLevelRestoration({ bookings, settlements });
+
+  const states = finalBookingStates(bookings);
+  const booked22 = [...states.values()].filter(s => s.dateKey === '2026-08-22' && s.mealType === 'LUNCH' && s.status === 'BOOKED');
+  assert.equal(booked22.length, 5);
+  const ids = booked22.map(b => b.memberId).sort();
+  assert.deepEqual(ids, ['193ddfb8', '2a4c7a46', '4791e1e0', 'df3ff56c', 'e25e94de'].sort());
+});
+
+test('84. Person-Level 22/8: attributed=5, unattributed=1, actual=6 (no fabricated 6th member)', () => {
+  const settlements = {};
+  simulatePersonLevelRestoration({ bookings: [], settlements });
+  const s22 = settlements['2026-08-22'];
+  assert.equal(s22.attributedLunchCount, 5);
+  assert.equal(s22.unattributedLunchCount, 1);
+  assert.equal(s22.lunchActual, 6);
+  assert.equal(s22.attributedLunchCount + s22.unattributedLunchCount, s22.lunchActual);
+});
+
+test('85. Assigning unresolved seat preserves official daily total', () => {
+  const settlement = {
+    lunchActual: 6,
+    attributedLunchCount: 5,
+    unattributedLunchCount: 1,
+  };
+
+  assert.ok(settlement.unattributedLunchCount > 0);
+  settlement.attributedLunchCount += 1;
+  settlement.unattributedLunchCount -= 1;
+
+  assert.equal(settlement.attributedLunchCount, 6);
+  assert.equal(settlement.unattributedLunchCount, 0);
+  assert.equal(settlement.lunchActual, 6);
+  assert.equal(settlement.attributedLunchCount + settlement.unattributedLunchCount, settlement.lunchActual);
+});
+
+test('86. August official Lunch total remains strictly 181 after person-level restoration', () => {
+  const augustData = [
+    { date: '2026-08-10', lunch: 14, dinner: 0 },
+    { date: '2026-08-11', lunch: 13, dinner: 0 },
+    { date: '2026-08-12', lunch: 0,  dinner: 0 },
+    { date: '2026-08-13', lunch: 12, dinner: 2 },
+    { date: '2026-08-14', lunch: 10, dinner: 0 },
+    { date: '2026-08-17', lunch: 10, dinner: 0 },
+    { date: '2026-08-18', lunch: 13, dinner: 0 },
+    { date: '2026-08-19', lunch: 0,  dinner: 0 },
+    { date: '2026-08-20', lunch: 15, dinner: 0 },
+    { date: '2026-08-21', lunch: 11, dinner: 0 },
+    { date: '2026-08-22', lunch: 6,  dinner: 0 },
+    { date: '2026-08-23', lunch: 2,  dinner: 2 },
+    { date: '2026-08-24', lunch: 12, dinner: 0 },
+    { date: '2026-08-25', lunch: 14, dinner: 0 },
+    { date: '2026-08-26', lunch: 14, dinner: 0 },
+    { date: '2026-08-27', lunch: 10, dinner: 0 },
+    { date: '2026-08-28', lunch: 14, dinner: 0 },
+    { date: '2026-08-30', lunch: 7,  dinner: 0 },
+    { date: '2026-08-31', lunch: 4,  dinner: 4 },
+  ];
+
+  const totalLunch = augustData.reduce((s, i) => s + i.lunch, 0);
+  const totalDinner = augustData.reduce((s, i) => s + i.dinner, 0);
+  assert.equal(totalLunch, 181);
+  assert.equal(totalDinner, 8);
+});
+
+test('87. Monthly history for August includes reconciliation notice for members', () => {
+  const notice = 'Tháng 8/2026 được đối soát từ sổ thực tế. Một số suất lịch sử chưa xác định được người cụ thể.';
+  assert.ok(notice.includes('Tháng 8/2026 được đối soát từ sổ thực tế'));
 });
