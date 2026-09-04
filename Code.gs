@@ -1229,7 +1229,7 @@ function getMonthlyHistory(memberId, monthKey) {
       dateKey: row.dateKey,
       dateLabel: dateDisplayFromKey_(row.dateKey),
       mealType: row.mealType,
-      mealLabel: row.mealType === APP.MEAL_TYPES.DINNER ? 'Cơm tối' : 'Cơm trưa',
+      mealLabel: row.mealType === APP.MEAL_TYPES.DINNER ? 'Cơm tối (tham khảo)' : 'Cơm trưa',
       updatedAt: formatDateTime_(row.updatedAt),
       canSelfRemove: row.mealType === APP.MEAL_TYPES.LUNCH && !isLocked,
     }))

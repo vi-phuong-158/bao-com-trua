@@ -1542,4 +1542,182 @@ test('93. Authorized Admin with inaccessible sheet gives actionable startup erro
       && err.message.includes('anmphongandn@gmail.com')
       && err.message.includes('Editor');
   });
-});
+});
+
+/* =========================================================================
+   18. Public Web App History & Dinner Reference Hotfix Tests
+   ========================================================================= */
+
+function simulateRenderHistoryResult(data) {
+  function escapeHtml(text) {
+    return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  const lockBanner = data.isLocked
+    ? `<div class="lock-banner">LOCKED</div>`
+    : `<div class="open-banner">OPEN</div>`;
+
+  const days = (data.days && data.days.length)
+    ? data.days.map((day, index) => {
+        const isDinner = day.mealType === 'DINNER';
+        const badgeStyle = isDinner
+          ? 'background:#fef3c7;color:#92400e;border:1px solid #fde68a;'
+          : 'background:#dcfce7;color:#166534;border:1px solid #bbf7d0;';
+        const label = isDinner ? 'Cơm tối (tham khảo)' : (day.mealLabel || 'Cơm trưa');
+        const actionBtn = day.canSelfRemove
+          ? `<button type="button" class="button-sm">Trừ suất</button>`
+          : '';
+
+        return `
+          <div class="history-day">
+            <span>${index + 1}. ${escapeHtml(day.dateLabel)}</span>
+            <span class="badge" style="${badgeStyle}">${escapeHtml(label)}</span>
+            <strong>1 suất</strong>
+            ${actionBtn}
+          </div>`;
+      }).join('')
+    : '<div class="empty">Chưa có suất ăn</div>';
+
+  const lunchCount = Number(data.lunchCount || 0);
+  const dinnerCount = Number(data.dinnerCount || 0);
+  const total = data.total !== undefined && data.total !== null
+    ? Number(data.total)
+    : lunchCount;
+
+  const dinnerNote = dinnerCount > 0
+    ? ` · <span>Tối tham khảo: <strong>${dinnerCount}</strong></span>`
+    : '';
+
+  const noticeBanner = data.reconciliationNotice
+    ? `<div class="notice">ℹ️ ${escapeHtml(data.reconciliationNotice)}</div>`
+    : '';
+
+  return `
+    ${lockBanner}
+    ${noticeBanner}
+    <div class="history-summary">
+      <div class="history-summary-label">${escapeHtml(data.member)}</div>
+      <div>${escapeHtml(data.monthLabel)} · <span>Quyết toán trưa: <strong>${lunchCount}</strong></span>${dinnerNote}</div>
+      <strong>${total} suất</strong>
+    </div>
+    <div class="history-days">${days}</div>`;
+}
+
+test('94. Public History: loadHistory with dinnerCount = 0 does not throw and omits dinner reference', () => {
+  const data = {
+    ok: true,
+    member: 'Vi Ngọc Phương',
+    month: '2026-09',
+    monthLabel: 'tháng 9/2026',
+    lunchCount: 15,
+    dinnerCount: 0,
+    total: 15,
+    days: [
+      { dateKey: '2026-09-01', dateLabel: '01/09/2026', mealType: 'LUNCH', mealLabel: 'Cơm trưa', canSelfRemove: true }
+    ],
+  };
+
+  assert.doesNotThrow(() => {
+    const html = simulateRenderHistoryResult(data);
+    assert.ok(html.includes('Quyết toán trưa: <strong>15</strong>'));
+    assert.ok(!html.includes('Tối tham khảo:'));
+    assert.ok(html.includes('15 suất'));
+  });
+});
+
+test('95. Public History: loadHistory with dinnerCount > 0 does not throw and renders dinner reference', () => {
+  const data = {
+    ok: true,
+    member: 'Nguyễn Hoàng Hiệp',
+    month: '2026-09',
+    monthLabel: 'tháng 9/2026',
+    lunchCount: 18,
+    dinnerCount: 3,
+    total: 18,
+    days: [
+      { dateKey: '2026-09-01', dateLabel: '01/09/2026', mealType: 'LUNCH', mealLabel: 'Cơm trưa', canSelfRemove: true },
+      { dateKey: '2026-09-01', dateLabel: '01/09/2026', mealType: 'DINNER', mealLabel: 'Cơm tối (tham khảo)', canSelfRemove: false }
+    ],
+  };
+
+  assert.doesNotThrow(() => {
+    const html = simulateRenderHistoryResult(data);
+    assert.ok(html.includes('Quyết toán trưa: <strong>18</strong>'));
+    assert.ok(html.includes('Tối tham khảo: <strong>3</strong>'));
+    assert.ok(html.includes('18 suất'));
+  });
+});
+
+test('96. Public History: No "dinnerNote is not defined" ReferenceError in Index.html source', () => {
+  const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'Index.html'), 'utf8');
+  assert.ok(indexHtml.includes('const dinnerNote = dinnerCount > 0'), 'Index.html must declare dinnerNote before usage');
+
+  // Verify that loadHistory in Index.html does not reference undeclared dinnerNote
+  const loadHistoryMatch = indexHtml.match(/function loadHistory\(\)[\s\S]*?\n\s{4}\}/);
+  assert.ok(loadHistoryMatch, 'loadHistory function must exist in Index.html');
+  const fnCode = loadHistoryMatch[0];
+  const dinnerNoteIndex = fnCode.indexOf('const dinnerNote');
+  const usageIndex = fnCode.indexOf('${dinnerNote}');
+  assert.ok(dinnerNoteIndex !== -1, 'dinnerNote must be declared');
+  assert.ok(usageIndex !== -1, 'dinnerNote must be used');
+  assert.ok(dinnerNoteIndex < usageIndex, 'dinnerNote must be declared BEFORE it is interpolated in template string');
+});
+
+test('97. Public History: Lunch 18 + Dinner 3 keeps official total strictly at 18', () => {
+  const data = {
+    ok: true,
+    member: 'Đỗ Đức Cường',
+    month: '2026-09',
+    monthLabel: 'tháng 9/2026',
+    lunchCount: 18,
+    dinnerCount: 3,
+    total: 18,
+    days: [],
+  };
+
+  const html = simulateRenderHistoryResult(data);
+  assert.ok(html.includes('<strong>18 suất</strong>'), 'Official total must remain strictly 18');
+  assert.ok(html.includes('Quyết toán trưa: <strong>18</strong>'));
+  assert.ok(html.includes('Tối tham khảo: <strong>3</strong>'));
+});
+
+test('98. Public History: Dinner row renders label "Cơm tối (tham khảo)"', () => {
+  const data = {
+    ok: true,
+    member: 'Phạm Việt Hùng',
+    month: '2026-08',
+    monthLabel: 'tháng 8/2026',
+    lunchCount: 1,
+    dinnerCount: 1,
+    total: 1,
+    days: [
+      { dateKey: '2026-08-23', dateLabel: '23/08/2026', mealType: 'DINNER', mealLabel: '', canSelfRemove: false },
+    ],
+  };
+
+  const html = simulateRenderHistoryResult(data);
+  assert.ok(html.includes('Cơm tối (tham khảo)'), 'Dinner row must display Cơm tối (tham khảo)');
+});
+
+test('99. Public History: Public user cannot edit Dinner (canSelfRemove is false for DINNER)', () => {
+  const data = {
+    ok: true,
+    member: 'Nguyễn Toàn Thịnh',
+    month: '2026-08',
+    monthLabel: 'tháng 8/2026',
+    lunchCount: 1,
+    dinnerCount: 1,
+    total: 1,
+    days: [
+      { dateKey: '2026-08-23', dateLabel: '23/08/2026', mealType: 'LUNCH', mealLabel: 'Cơm trưa', canSelfRemove: true },
+      { dateKey: '2026-08-23', dateLabel: '23/08/2026', mealType: 'DINNER', mealLabel: 'Cơm tối (tham khảo)', canSelfRemove: false },
+    ],
+  };
+
+  const html = simulateRenderHistoryResult(data);
+  // Lunch has self-remove button
+  assert.ok(html.includes('Trừ suất'));
+  // Count how many Trừ suất buttons exist (must be exactly 1, for Lunch only)
+  const removeButtons = (html.match(/Trừ suất/g) || []).length;
+  assert.equal(removeButtons, 1, 'Only Lunch can have Trừ suất button; Dinner cannot be edited by public user');
+});
