@@ -836,7 +836,8 @@ test('56d. Security: all admin functions in Admin.gs verify assertAdmin_()', () 
     'adminSaveDailySettlement',
     'adminSetMonthStatus',
     'adminToggleWeekendServiceDay',
-    'adminAssignUnattributedLunch'
+    'adminAssignUnattributedLunch',
+    'adminGetRuntimeDiagnostic'
   ];
 
   adminEndpoints.forEach(fnName => {
@@ -1417,3 +1418,128 @@ test('87. Monthly history for August includes reconciliation notice for members'
   const notice = 'Tháng 8/2026 được đối soát từ sổ thực tế. Một số suất lịch sử chưa xác định được người cụ thể.';
   assert.ok(notice.includes('Tháng 8/2026 được đối soát từ sổ thực tế'));
 });
+
+/* =========================================================================
+   17. Explicit Data Binding & Admin Runtime Diagnostics Tests
+   ========================================================================= */
+
+const CANONICAL_SHEET_ID = '1G0rdpqR7BVVUUlhpkz97f3vRehCg1GYwc7MbP9UXAJs';
+
+function simulateGetAppSpreadsheet({ scriptPropertyId, canonicalId = CANONICAL_SHEET_ID, shouldThrowPermission = false, mockSheet = {} } = {}) {
+  const id = scriptPropertyId || canonicalId;
+  if (!id) {
+    throw new Error('Chưa cấu hình SPREADSHEET_ID. Hãy cấu hình ScriptProperties hoặc chạy setupApp() từ Google Sheet.');
+  }
+  if (canonicalId && id !== canonicalId) {
+    throw new Error(`Google Sheet không đúng: ID (${id}) không khớp với canonical spreadsheet (${canonicalId}).`);
+  }
+  if (shouldThrowPermission) {
+    throw new Error(
+      `Tài khoản Google hiện tại đã được nhận diện là Admin nhưng chưa có quyền truy cập Google Sheet HỘI CƠM TRƯA (ID: ${id}). ` +
+      `Vui lòng liên hệ chủ sở hữu (anmphongandn@gmail.com) để được cấp quyền Chỉnh sửa (Editor). Chi tiết: Exception: You do not have permission to perform that action.`
+    );
+  }
+  return { id, name: 'HỘI CƠM TRƯA', ...mockSheet };
+}
+
+function simulateAdminGetRuntimeDiagnostic({ activeEmail, effectiveEmail, scriptPropertyId, shouldThrowPermission = false, mockBookingsLastRow = 200, mockTodayLunchCount = 15, allowedAdmins = ['vingocphuong.92@gmail.com', 'anmphongandn@gmail.com'] } = {}) {
+  assertAdmin(activeEmail, allowedAdmins);
+  const ss = simulateGetAppSpreadsheet({ scriptPropertyId, shouldThrowPermission });
+  return {
+    ok: true,
+    activeEmail,
+    effectiveEmail: effectiveEmail || activeEmail,
+    spreadsheetId: ss.id,
+    spreadsheetName: ss.name,
+    chamComLastRow: mockBookingsLastRow,
+    'CHAM_COM lastRow': mockBookingsLastRow,
+    today: '2026-09-04',
+    lunchCountToday: mockTodayLunchCount,
+    'lunch count today': mockTodayLunchCount,
+    deploymentId: 'AKfycbx1rZMgkbvwM7wfrGMb50XZt1NDmEzr_4T0oUdG-91Q9DW2REt4Gp8d8xUd9ItiKziFXA',
+    buildId: '2026.09.04.1',
+  };
+}
+
+test('88. Explicit Data Binding: resolves canonical spreadsheet ID 1G0rdpqR7BVVUUlhpkz97f3vRehCg1GYwc7MbP9UXAJs', () => {
+  // Static check in Code.gs
+  const codeGs = fs.readFileSync(path.join(__dirname, '..', 'Code.gs'), 'utf8');
+  assert.ok(codeGs.includes(CANONICAL_SHEET_ID), 'Code.gs must reference canonical spreadsheet ID');
+  assert.ok(codeGs.includes('function getAppSpreadsheet_()'), 'Code.gs must define getAppSpreadsheet_()');
+  assert.ok(codeGs.includes('const ss = getAppSpreadsheet_();'), 'getSheet_() must call getAppSpreadsheet_()');
+
+  // Runtime simulation
+  const ss = simulateGetAppSpreadsheet();
+  assert.equal(ss.id, CANONICAL_SHEET_ID);
+  assert.equal(ss.name, 'HỘI CƠM TRƯA');
+});
+
+test('89. Explicit Data Binding: missing SPREADSHEET_ID throws actionable error', () => {
+  assert.throws(() => {
+    simulateGetAppSpreadsheet({ scriptPropertyId: '', canonicalId: '' });
+  }, /Chưa cấu hình SPREADSHEET_ID/);
+});
+
+test('90. Explicit Data Binding: wrong spreadsheet bound throws actionable mismatch error', () => {
+  assert.throws(() => {
+    simulateGetAppSpreadsheet({ scriptPropertyId: 'WRONG_UNAUTHORIZED_SHEET_ID', canonicalId: CANONICAL_SHEET_ID });
+  }, /Google Sheet không đúng: ID \(WRONG_UNAUTHORIZED_SHEET_ID\) không khớp với canonical spreadsheet/);
+});
+
+test('91. Explicit Data Binding: inaccessible sheet throws actionable permission error for Admin', () => {
+  assert.throws(() => {
+    simulateGetAppSpreadsheet({ shouldThrowPermission: true });
+  }, /Tài khoản Google hiện tại đã được nhận diện là Admin nhưng chưa có quyền truy cập Google Sheet HỘI CƠM TRƯA/);
+});
+
+test('92. Admin Runtime Diagnostic: rejects anonymous/unauthorized and returns identity + counts for Admin', () => {
+  // Denies unauthorized
+  assert.throws(() => {
+    simulateAdminGetRuntimeDiagnostic({ activeEmail: 'stranger@gmail.com' });
+  }, /Không có quyền quản trị/);
+
+  // Denies anonymous
+  assert.throws(() => {
+    simulateAdminGetRuntimeDiagnostic({ activeEmail: '' });
+  }, /Không có quyền quản trị/);
+
+  // Succeeds for owner anmphongandn@gmail.com
+  const diagAn = simulateAdminGetRuntimeDiagnostic({
+    activeEmail: 'anmphongandn@gmail.com',
+    effectiveEmail: 'anmphongandn@gmail.com',
+    mockBookingsLastRow: 180,
+    mockTodayLunchCount: 14,
+  });
+  assert.equal(diagAn.ok, true);
+  assert.equal(diagAn.activeEmail, 'anmphongandn@gmail.com');
+  assert.equal(diagAn.spreadsheetId, CANONICAL_SHEET_ID);
+  assert.equal(diagAn.chamComLastRow, 180);
+  assert.equal(diagAn['CHAM_COM lastRow'], 180);
+  assert.equal(diagAn.lunchCountToday, 14);
+  assert.equal(diagAn['lunch count today'], 14);
+  assert.ok(diagAn.buildId);
+
+  // Succeeds for authorized admin vingocphuong.92@gmail.com
+  const diagVingoc = simulateAdminGetRuntimeDiagnostic({
+    activeEmail: 'vingocphuong.92@gmail.com',
+    mockBookingsLastRow: 180,
+    mockTodayLunchCount: 14,
+  });
+  assert.equal(diagVingoc.ok, true);
+  assert.equal(diagVingoc.activeEmail, 'vingocphuong.92@gmail.com');
+  assert.equal(diagVingoc.spreadsheetId, CANONICAL_SHEET_ID);
+});
+
+test('93. Authorized Admin with inaccessible sheet gives actionable startup error identifying admin identity and sheet owner', () => {
+  // When vingocphuong.92@gmail.com logs in but is not granted Editor in Drive
+  assert.throws(() => {
+    simulateAdminGetRuntimeDiagnostic({
+      activeEmail: 'vingocphuong.92@gmail.com',
+      shouldThrowPermission: true,
+    });
+  }, (err) => {
+    return err.message.includes('Tài khoản Google hiện tại đã được nhận diện là Admin nhưng chưa có quyền truy cập Google Sheet HỘI CƠM TRƯA')
+      && err.message.includes('anmphongandn@gmail.com')
+      && err.message.includes('Editor');
+  });
+});

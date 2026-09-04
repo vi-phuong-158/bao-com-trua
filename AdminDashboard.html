@@ -170,6 +170,17 @@
     <? if (!isWebApp) { ?><button class="close" onclick="google.script.host.close()">Đóng Dashboard</button><? } ?>
   </div>
 
+  <div id="startupErrorCard" style="display:none; background:#fef2f2; border:1px solid #f87171; border-radius:14px; padding:18px 22px; margin-bottom:18px; box-shadow:0 4px 14px rgba(220,38,38,0.1);">
+    <div style="display:flex; align-items:flex-start; gap:14px;">
+      <span style="font-size:26px; line-height:1;">🚫</span>
+      <div style="flex:1;">
+        <h3 style="margin:0 0 6px 0; color:#991b1b; font-size:16px; font-weight:800;">Không thể tải dữ liệu quản trị</h3>
+        <p id="startupErrorMessage" style="margin:0 0 8px 0; color:#7f1d1d; font-size:14px; line-height:1.5; font-weight:500;"></p>
+        <div id="startupErrorAction" style="font-size:13px; color:#b91c1c; font-weight:700;"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="toolbar">
     <div class="field"><label>Ngày quản lý</label><input id="datePicker" type="date" onchange="refresh()"></div>
     <div class="field"><label>Tháng thống kê</label><input id="monthPicker" type="month" onchange="refresh()"></div>
@@ -310,9 +321,30 @@
     refresh();
   });
 
+  function showStartupError(msg) {
+    const card = document.getElementById('startupErrorCard');
+    const msgEl = document.getElementById('startupErrorMessage');
+    const actEl = document.getElementById('startupErrorAction');
+    if (card && msgEl) {
+      card.style.display = 'block';
+      msgEl.textContent = msg;
+      if (msg.includes('chưa có quyền truy cập') || msg.includes('Editor') || msg.includes('permission')) {
+        actEl.textContent = '👉 Yêu cầu chủ sở hữu Google Sheet (anmphongandn@gmail.com) chia sẻ quyền Chỉnh sửa (Editor) cho tài khoản này.';
+      } else {
+        actEl.textContent = '👉 Vui lòng kiểm tra lại cấu hình Google Apps Script hoặc thử tải lại trang.';
+      }
+    }
+  }
+
+  function hideStartupError() {
+    const card = document.getElementById('startupErrorCard');
+    if (card) card.style.display = 'none';
+  }
+
   function server() {
     return google.script.run.withSuccessHandler(data => {
       setLoading(false);
+      hideStartupError();
       if (data && data.rows && data.counts) {
         state = data;
         render();
@@ -321,7 +353,9 @@
       }
     }).withFailureHandler(err => {
       setLoading(false);
-      toast(errorMessage(err));
+      const msg = errorMessage(err);
+      showStartupError(msg);
+      toast(msg);
     });
   }
 

@@ -588,3 +588,63 @@ function adminAssignUnattributedLunch(dateKey, memberId, monthKey) {
 
   return adminGetDashboardData(selectedDate, monthKey || selectedDate.slice(0, 7));
 }
+
+/**
+ * Chẩn đoán runtime dành riêng cho Admin (yêu cầu quyền assertAdmin_).
+ * Tuyệt đối không để lộ cho người dùng ẩn danh hoặc tài khoản không có quyền.
+ * Trả về:
+ * - activeEmail
+ * - effectiveEmail
+ * - spreadsheetId
+ * - spreadsheetName
+ * - CHAM_COM lastRow
+ * - today
+ * - lunch count today
+ * - deployment/build ID if available
+ */
+function adminGetRuntimeDiagnostic() {
+  assertAdmin_();
+  const activeEmail = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
+  const effectiveEmail = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
+
+  const ss = getAppSpreadsheet_();
+  const spreadsheetId = ss.getId();
+  const spreadsheetName = ss.getName();
+
+  const shBookings = ss.getSheetByName(APP.SHEETS.BOOKINGS);
+  const chamComLastRow = shBookings ? shBookings.getLastRow() : 0;
+
+  const today = dateKey_(new Date());
+  let lunchCountToday = 0;
+  try {
+    const states = getFinalBookingStateForDate_(today);
+    const members = getMembers_(true);
+    lunchCountToday = members.filter(m => m.active && states[m.id]?.LUNCH?.status === APP.MEAL_STATES.BOOKED).length;
+  } catch (err) {
+    lunchCountToday = 0;
+  }
+
+  const buildId = (typeof APP !== 'undefined' && APP.BUILD_ID) ? APP.BUILD_ID : '2026.09.04.1';
+  let deploymentId = '';
+  try {
+    deploymentId = ScriptApp.getScriptId();
+  } catch (err) {
+    deploymentId = '';
+  }
+
+  return {
+    ok: true,
+    activeEmail,
+    effectiveEmail,
+    spreadsheetId,
+    spreadsheetName,
+    chamComLastRow,
+    'CHAM_COM lastRow': chamComLastRow,
+    today,
+    lunchCountToday,
+    'lunch count today': lunchCountToday,
+    deploymentId,
+    buildId,
+  };
+}
+

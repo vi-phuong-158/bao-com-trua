@@ -1,5 +1,7 @@
 const APP = {
   TZ: 'Asia/Ho_Chi_Minh',
+  SPREADSHEET_ID: '1G0rdpqR7BVVUUlhpkz97f3vRehCg1GYwc7MbP9UXAJs',
+  BUILD_ID: '2026.09.04.1',
   ADMIN_EMAIL: 'vingocphuong.92@gmail.com',
   ADMIN_EMAILS: ['vingocphuong.92@gmail.com', 'anmphongandn@gmail.com'],
   CUTOFF_HOUR: 8,
@@ -155,6 +157,16 @@ function setupApp() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) throw new Error('Hãy gắn Apps Script với một Google Sheet trước khi chạy setupApp().');
 
+  const boundId = ss.getId();
+  if (APP.SPREADSHEET_ID && boundId !== APP.SPREADSHEET_ID) {
+    throw new Error(`Google Sheet đang mở (${boundId}) không khớp với Canonical ID (${APP.SPREADSHEET_ID}).`);
+  }
+  try {
+    PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', boundId);
+  } catch (err) {
+    // Không chặn setup nếu PropertiesService không khả dụng trong mock
+  }
+
   ensureSheet_(ss, APP.SHEETS.MEMBERS, APP.HEADERS.MEMBERS);
   migrateBookingsSheet_(ss);
   migrateAuditSheet_(ss);
@@ -292,7 +304,7 @@ function migrateAuditSheet_(ss) {
  * Thêm những tên còn thiếu vào THANH_VIEN, không sửa hoặc xóa thành viên hiện có.
  */
 function seedDefaultMembers() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getAppSpreadsheet_();
   if (!ss) throw new Error('Hãy gắn Apps Script với một Google Sheet trước khi chạy seedDefaultMembers().');
 
   ensureSheet_(ss, APP.SHEETS.MEMBERS, APP.HEADERS.MEMBERS);
@@ -530,7 +542,7 @@ function upsertDailySettlement_(dateKey, data, userEmail) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ss = getAppSpreadsheet_();
     if (ss) ensureSheet_(ss, APP.SHEETS.DAILY_SETTLEMENT, APP.HEADERS.DAILY_SETTLEMENT);
     const sh = getSheet_(APP.SHEETS.DAILY_SETTLEMENT);
     const existing = getDailySettlement_(dateKey);
@@ -608,7 +620,7 @@ function setMonthSettlementStatus_(monthKey, status, note, userEmail, stats) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ss = getAppSpreadsheet_();
     if (ss) ensureSheet_(ss, APP.SHEETS.MONTHLY_SETTLEMENT, APP.HEADERS.MONTHLY_SETTLEMENT);
     const sh = getSheet_(APP.SHEETS.MONTHLY_SETTLEMENT);
     const existing = getMonthSettlementStatus_(monthKey);
@@ -721,7 +733,7 @@ const AUGUST_2026_ACTUAL_LUNCH = [
  * Nạp số liệu quyết toán thực tế tháng 8/2026 vào QUYET_TOAN_NGAY an toàn & idempotent.
  */
 function seedAugust2026ActualSettlement() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getAppSpreadsheet_();
   if (!ss) throw new Error('Không tìm thấy Google Sheet đang hoạt động.');
 
   const totalLunch = AUGUST_2026_ACTUAL_LUNCH.reduce((sum, item) => sum + item.lunch, 0);
@@ -800,7 +812,7 @@ function seedAugust2026ActualSettlement() {
  * (22/08/2026, 23/08/2026, 31/08/2026) mà không bịa người và không thay đổi tổng số quyết toán.
  */
 function reconcilePersonLevelAugustDates_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getAppSpreadsheet_();
   if (!ss) throw new Error('Không tìm thấy Spreadsheet.');
 
   const lock = LockService.getScriptLock();
@@ -1739,8 +1751,67 @@ function normalizeConfigTime_(value, fallback) {
   return String(value || fallback);
 }
 
+let _cachedAppSpreadsheet = null;
+
+/**
+ * Lấy Google Spreadsheet canonical của ứng dụng.
+ * Không dựa vào getActiveSpreadsheet() trong runtime Web App để tránh lỗi standalone/permissions.
+ *
+ * Ưu tiên:
+ * 1. ScriptProperties SPREADSHEET_ID (được seed từ setupApp())
+ * 2. Cấu hình APP.SPREADSHEET_ID ('1G0rdpqR7BVVUUlhpkz97f3vRehCg1GYwc7MbP9UXAJs')
+ * 3. SpreadsheetApp.openById(id)
+ *
+ * Báo lỗi rõ ràng và có hành động cụ thể nếu:
+ * - Thiếu SPREADSHEET_ID
+ * - Admin truy cập chưa được chia sẻ quyền trên Sheet
+ * - Gắn sai spreadsheet (không khớp ID canonical)
+ */
+function getAppSpreadsheet_() {
+  if (_cachedAppSpreadsheet) {
+    return _cachedAppSpreadsheet;
+  }
+
+  let id = '';
+  try {
+    id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  } catch (err) {
+    // Không chặn nếu PropertiesService chưa khả dụng trong mock test
+  }
+
+  if (!id) {
+    id = APP.SPREADSHEET_ID;
+  }
+
+  if (!id) {
+    throw new Error('Chưa cấu hình SPREADSHEET_ID. Hãy cấu hình ScriptProperties hoặc chạy setupApp() từ Google Sheet.');
+  }
+
+  if (APP.SPREADSHEET_ID && id !== APP.SPREADSHEET_ID) {
+    throw new Error(`Google Sheet không đúng: ID (${id}) không khớp với canonical spreadsheet (${APP.SPREADSHEET_ID}).`);
+  }
+
+  try {
+    const ss = SpreadsheetApp.openById(id);
+    if (!ss) {
+      throw new Error(`Không thể mở Google Sheet với ID: ${id}`);
+    }
+    _cachedAppSpreadsheet = ss;
+    return ss;
+  } catch (err) {
+    const rawMsg = (err && err.message) ? err.message : String(err);
+    if (rawMsg.includes('không khớp') || rawMsg.includes('Chưa cấu hình')) {
+      throw err;
+    }
+    throw new Error(
+      `Tài khoản Google hiện tại đã được nhận diện là Admin nhưng chưa có quyền truy cập Google Sheet HỘI CƠM TRƯA (ID: ${id}). ` +
+      `Vui lòng liên hệ chủ sở hữu (anmphongandn@gmail.com) để được cấp quyền Chỉnh sửa (Editor). Chi tiết: ${rawMsg}`
+    );
+  }
+}
+
 function getSheet_(name) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getAppSpreadsheet_();
   const sh = ss.getSheetByName(name);
   if (!sh) throw new Error(`Thiếu sheet ${name}. Hãy chạy setupApp() trước.`);
   return sh;
